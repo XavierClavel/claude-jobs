@@ -1,0 +1,39 @@
+import { ago, cost, duration, scheduleText, slug } from './format'
+
+describe('scheduleText', () => {
+  it('says every day when no day is picked', () => {
+    expect(scheduleText({ hour: 9, minute: 5, weekdays: [] })).toBe('Every day at 09:05')
+  })
+
+  it('lists the picked days', () => {
+    expect(scheduleText({ hour: 18, minute: 30, weekdays: [1, 5, 7] })).toBe(
+      'Mon, Fri, Sun at 18:30',
+    )
+  })
+})
+
+describe('durations, costs and ages', () => {
+  it('formats a duration in seconds, then minutes', () => {
+    expect(duration(45)).toBe('45 s')
+    expect(duration(125)).toBe('2 min 5 s')
+    expect(duration(null)).toBe('—')
+  })
+
+  it('rounds a cost to cents', () => {
+    expect(cost(0.553077)).toBe('$0.55')
+    expect(cost(undefined)).toBe('—')
+  })
+
+  it('says how long ago a run started', () => {
+    const now = Date.parse('2026-10-26T15:00:00Z')
+    expect(ago('2026-10-26T14:59:30Z', now)).toBe('30 s ago')
+    expect(ago('2026-10-26T13:00:00Z', now)).toBe('2 h ago')
+  })
+})
+
+describe('slug', () => {
+  it('turns a name into an id', () => {
+    expect(slug('Photobook monitor')).toBe('photobook-monitor')
+    expect(slug('  Weekly: Sales report! ')).toBe('weekly-sales-report')
+  })
+})

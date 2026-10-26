@@ -1,0 +1,34 @@
+[package]
+name = "claude-jobs"
+version = "0.1.0"
+description = "Run headless Claude Code prompts on a schedule with launchd"
+authors = ["Xavier Clavel"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "claude_jobs_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.3", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# The TypeScript types in `src/domain` are generated from these structs (`pnpm domain:build`).
+ts-rs = "12.0.1"
+# `clock` for the local time zone: a schedule's next run is a local wall-clock time.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+plist = "1"
+# `kill(pid, 0)` and `killpg`: whether a run is still alive, and stopping a timed-out one with everything it started.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+# Proc macros and build scripts are dylibs rustc loads while compiling. Stripping them in release (Cargo's default)
+# leaves dylibs dyld refuses on this toolchain ("mis-aligned LINKEDIT string pool"); they never ship in the app.
+[profile.release.build-override]
+strip = "none"

@@ -1,0 +1,108 @@
+import { useCallback, useEffect, useState } from 'react'
+import { api, errorsOf } from './api'
+import { Dialog } from './components/Dialog'
+import { History } from './components/History'
+import { JobCard } from './components/JobCard'
+import { JobEditor } from './components/JobEditor'
+import type { Defaults } from './domain/Defaults'
+import type { JobView } from './domain/JobView'
+
+type Editing = { job: JobView | null } | null
+
+export function App() {
+  const [jobs, setJobs] = useState<JobView[] | null>(null)
+  const [defaults, setDefaults] = useState<Defaults | null>(null)
+  const [editing, setEditing] = useState<Editing>(null)
+  const [history, setHistory] = useState<JobView | null>(null)
+  const [banner, setBanner] = useState<string[]>([])
+
+  const refresh = useCallback(async () => {
+    try {
+      setJobs(await api.listJobs())
+    } catch (e) {
+      setBanner(errorsOf(e))
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    api.defaults().then(setDefaults, () => setDefaults(null))
+  }, [refresh])
+
+  // Faster while a run is going, so its end shows up without reloading.
+  const running = jobs?.some((j) => j.last_run?.status === 'running') ?? false
+  useEffect(() => {
+    const timer = setInterval(refresh, running ? 4000 : 30000)
+    return () => clearInterval(timer)
+  }, [refresh, running])
+
+  useEffect(() => {
+    if (!banner.length) return
+    const timer = setTimeout(() => setBanner([]), 10000)
+    return () => clearTimeout(timer)
+  }, [banner])
+
+  async function act(action: () => Promise<unknown>, delay = 0) {
+    try {
+      await action()
+    } catch (e) {
+      setBanner(errorsOf(e))
+    }
+    setTimeout(refresh, delay)
+  }
+
+  return (
+    <>
+      <header className="top">
+        <h1>Claude Jobs</h1>
+        <button type="button" className="primary" onClick={() => setEditing({ job: null })}>
+          New job
+        </button>
+      </header>
+      {banner.length > 0 && (
+        <p className="errors banner" role="alert">
+          {banner.join('\n')}
+        </p>
+      )}
+      <main className="jobs">
+        {jobs === null ? (
+          <p className="muted">Loading jobs…</p>
+        ) : jobs.length === 0 ? (
+          <div className="empty">
+            <p>No jobs yet.</p>
+            <p className="muted">
+              A job runs a Claude Code prompt on a schedule, like /photobook-monitor every morning.
+            </p>
+          </div>
+        ) : (
+          jobs.map((job) => (
+            <JobCard
+              key={job.id}
+              job={job}
+              onRun={() => act(() => api.runNow(job.id), 1500)}
+              onToggle={() => act(() => api.setEnabled(job.id, !job.enabled))}
+              onEdit={() => setEditing({ job })}
+              onHistory={() => setHistory(job)}
+            />
+          ))
+        )}
+      </main>
+      <Dialog open={editing !== null} onClose={() => setEditing(null)} labelledBy="editor-title">
+        {editing && (
+          <JobEditor
+            job={editing.job}
+            defaults={defaults}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null)
+              refresh()
+            }}
+          />
+        )}
+      </Dialog>
+      <Dialog open={history !== null} onClose={() => setHistory(null)} labelledBy="history-title">
+        {history && <History job={history} onClose={() => setHistory(null)} />}
+      </Dialog>
+    </>
+  )
+}

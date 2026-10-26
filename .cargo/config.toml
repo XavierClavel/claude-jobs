@@ -1,0 +1,4 @@
+[env]
+# Where `cargo test export_bindings` writes the TypeScript types the front end imports. Relative to this folder's
+# parent, so it holds whether cargo runs from the root (pnpm scripts) or from src-tauri (tauri dev).
+TS_RS_EXPORT_DIR = { value = "src/domain", relative = true }
