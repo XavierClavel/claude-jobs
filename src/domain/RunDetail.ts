@@ -27,4 +27,9 @@ export type RunDetail = {
   pid: number | null
   claude_pid: number | null
   prompt: string | null
+  interactive: boolean
+  /**
+   * The tmux session of an interactive run, which the app can open to watch it.
+   */
+  tmux_session: string | null
 }

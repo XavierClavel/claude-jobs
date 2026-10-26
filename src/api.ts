@@ -14,6 +14,7 @@ export const api = {
   deleteJob: (id: string) => invoke<void>('delete_job', { id }),
   setEnabled: (id: string, enabled: boolean) => invoke<JobView>('set_enabled', { id, enabled }),
   runNow: (id: string) => invoke<void>('run_now', { id }),
+  watchRun: (id: string) => invoke<void>('watch_run', { id }),
   listRuns: (id: string) => invoke<RunRecord[]>('list_runs', { id }),
   getRun: (id: string, runId: string) => invoke<RunDetail>('get_run', { id, runId }),
 }

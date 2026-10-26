@@ -45,13 +45,15 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
         pid: Some(std::process::id()),
         claude_pid: None,
         prompt: Some(job.prompt.clone()),
+        interactive: job.interactive,
+        tmux_session: None,
     };
     if let Err(e) = runs::save(&rec) {
         eprintln!("cannot record the run: {e}");
         return 1;
     }
 
-    let outcome = execute(&job, &mut rec);
+    let outcome = if job.interactive { crate::interactive::execute(&job, &mut rec) } else { execute(&job, &mut rec) };
     let ended = Utc::now();
     rec.ended_at = Some(ended.to_rfc3339_opts(SecondsFormat::Secs, true));
     rec.duration_s = Some((ended - started).num_seconds().max(0) as u32);

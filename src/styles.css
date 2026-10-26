@@ -194,6 +194,11 @@ button:disabled {
   text-align: center;
 }
 
+.hint {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+}
+
 .errors {
   color: var(--bad);
   margin: 0;

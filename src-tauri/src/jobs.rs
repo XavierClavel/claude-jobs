@@ -34,6 +34,9 @@ pub struct Job {
     pub claude: String,
     #[serde(default)]
     pub path: String,
+    /// Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
+    #[serde(default)]
+    pub interactive: bool,
 }
 
 fn default_timeout() -> u32 {
@@ -220,6 +223,7 @@ mod tests {
             enabled: true,
             claude: "/bin/sh".into(),
             path: "/usr/bin:/bin".into(),
+            interactive: false,
         }
     }
 

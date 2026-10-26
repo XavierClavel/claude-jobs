@@ -83,6 +83,7 @@ export function App() {
               onToggle={() => act(() => api.setEnabled(job.id, !job.enabled))}
               onEdit={() => setEditing({ job })}
               onHistory={() => setHistory(job)}
+              onWatch={() => act(() => api.watchRun(job.id))}
             />
           ))
         )}

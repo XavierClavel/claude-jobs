@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod interactive;
 pub mod jobs;
 pub mod launchd;
 pub mod paths;
@@ -22,6 +23,7 @@ pub fn run() {
             commands::delete_job,
             commands::set_enabled,
             commands::run_now,
+            commands::watch_run,
             commands::list_runs,
             commands::get_run,
         ])

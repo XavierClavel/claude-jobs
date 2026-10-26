@@ -18,6 +18,7 @@ function job(overrides: Partial<JobView> = {}): JobView {
     enabled: true,
     claude: '/bin/claude',
     path: '/usr/bin',
+    interactive: false,
     label: 'com.claude-jobs.photobook-monitor',
     loaded: true,
     next_run: '2026-10-27T09:00:00+01:00',
@@ -30,7 +31,16 @@ const noop = () => {}
 
 describe('JobCard', () => {
   it('shows the schedule and that the job never ran', () => {
-    render(<JobCard job={job()} onRun={noop} onToggle={noop} onEdit={noop} onHistory={noop} />)
+    render(
+      <JobCard
+        job={job()}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={noop}
+      />,
+    )
     expect(screen.getByText('Scheduled')).toBeInTheDocument()
     expect(screen.getByText(/Every day at 09:00/)).toBeInTheDocument()
     expect(screen.getByText('Never run')).toBeInTheDocument()
@@ -45,6 +55,7 @@ describe('JobCard', () => {
         onToggle={onToggle}
         onEdit={noop}
         onHistory={noop}
+        onWatch={noop}
       />,
     )
     expect(screen.getByText('Paused')).toBeInTheDocument()
@@ -71,9 +82,72 @@ describe('JobCard', () => {
         pid: 1,
         claude_pid: null,
         prompt: '/photobook-monitor',
+        interactive: false,
+        tmux_session: null,
       },
     })
-    render(<JobCard job={running} onRun={noop} onToggle={noop} onEdit={noop} onHistory={noop} />)
+    render(
+      <JobCard
+        job={running}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={noop}
+      />,
+    )
     expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled()
+  })
+})
+
+describe('JobCard on an interactive job', () => {
+  it('offers Watch only while a run is live', async () => {
+    const onWatch = vi.fn()
+    const live = job({
+      interactive: true,
+      last_run: {
+        id: '20261026T134651Z',
+        job: 'photobook-monitor',
+        trigger: 'schedule',
+        status: 'running',
+        started_at: '2026-10-26T13:46:51Z',
+        ended_at: null,
+        duration_s: null,
+        exit_code: null,
+        cost_usd: null,
+        num_turns: null,
+        session_id: null,
+        result: null,
+        error: null,
+        pid: 1,
+        claude_pid: null,
+        prompt: '/photobook-monitor',
+        interactive: true,
+        tmux_session: 'cj-photobook-monitor',
+      },
+    })
+    const { rerender } = render(
+      <JobCard
+        job={live}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={onWatch}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Watch' }))
+    expect(onWatch).toHaveBeenCalledOnce()
+    rerender(
+      <JobCard
+        job={job({ interactive: true })}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={onWatch}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
   })
 })

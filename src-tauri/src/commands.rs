@@ -2,7 +2,7 @@
 
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord};
-use crate::{launchd, paths, schedule};
+use crate::{interactive, launchd, paths, schedule};
 use chrono::{Local, SecondsFormat};
 use serde::Serialize;
 use std::os::unix::process::CommandExt;
@@ -136,6 +136,32 @@ pub fn run_now(id: String) -> Reply<()> {
         .process_group(0)
         .spawn()
         .map_err(|e| format!("cannot start the run: {e}"))?;
+    Ok(())
+}
+
+/// Opens Terminal on the live tmux session of an interactive run, to watch it or answer a question it is stuck on.
+#[tauri::command(async)]
+pub fn watch_run(id: String) -> Reply<()> {
+    let job = jobs::find(&id)?.ok_or_else(|| format!("No job called {id}."))?;
+    let tmux =
+        interactive::tmux_bin(&job.path).ok_or_else(|| "tmux is not installed (brew install tmux).".to_string())?;
+    let session = interactive::session_name(&id);
+    if !interactive::has_session(&tmux, &session) {
+        return Err("There is no live session to watch: the run has finished.".to_string().into());
+    }
+    // A .command file opens in Terminal by itself, without asking to control Terminal.
+    std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
+    let script = paths::logs_dir().join(format!("watch-{id}.command"));
+    let body = format!(
+        "#!/bin/zsh\nexec {} -L {} attach -t {}\n",
+        interactive::shell_quote(&tmux.display().to_string()),
+        interactive::SOCKET,
+        interactive::shell_quote(&session)
+    );
+    std::fs::write(&script, body).map_err(|e| e.to_string())?;
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .map_err(|e| e.to_string())?;
+    Command::new("open").arg(&script).spawn().map_err(|e| format!("cannot open Terminal: {e}"))?;
     Ok(())
 }
 

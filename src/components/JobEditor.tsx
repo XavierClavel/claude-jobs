@@ -177,6 +177,19 @@ export function JobEditor({
       <label className="check">
         <input
           type="checkbox"
+          checked={draft.interactive}
+          onChange={(e) => set('interactive', e.target.checked)}
+        />
+        Interactive session
+      </label>
+      <p className="muted hint">
+        Runs a real Claude Code session in tmux instead of <span className="mono">claude -p</span>.
+        Needed for tools a headless run does not get, such as the Artifact tools; you can watch it
+        live while it runs.
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={draft.enabled}
           onChange={(e) => set('enabled', e.target.checked)}
         />

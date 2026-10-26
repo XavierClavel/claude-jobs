@@ -41,8 +41,16 @@ pnpm lint && pnpm typecheck
 pnpm app:build          # src-tauri/target/release/bundle/macos/Claude Jobs.app
 ```
 
+## Interactive jobs
+
+A headless `claude -p` session has no Artifact tools. A job marked **Interactive session** runs a real Claude Code
+session instead, in its own tmux server (`tmux -L claude-jobs`, so it never mixes with yours). A Stop hook passed
+with `--settings` tells the runner when Claude has finished; the runner then sends `/exit` and reads the result,
+turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session. Needs
+`brew install tmux`.
+
 ## Limits
 
-- A headless Claude session has no Artifact tools, so a job cannot update a claude.ai artifact. Connectors (Slack,
-  Linear…) work.
+- An interactive job waits on any permission prompt until its timeout: allow every tool it needs (your default
+  permission mode still applies to the rest).
 - A job runs with the PATH set in its advanced settings, not your shell's: add the folders of every command it needs.

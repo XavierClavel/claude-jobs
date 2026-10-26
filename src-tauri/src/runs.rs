@@ -58,6 +58,11 @@ pub struct RunRecord {
     pub claude_pid: Option<u32>,
     #[serde(default)]
     pub prompt: Option<String>,
+    #[serde(default)]
+    pub interactive: bool,
+    /// The tmux session of an interactive run, which the app can open to watch it.
+    #[serde(default)]
+    pub tmux_session: Option<String>,
 }
 
 #[derive(Serialize, TS, Clone, Debug)]
@@ -138,7 +143,7 @@ pub fn save(rec: &RunRecord) -> Result<(), String> {
 
 pub fn prune(job_id: &str) {
     for old in run_files(job_id).into_iter().skip(KEEP_RUNS) {
-        for ext in ["json", "out", "err"] {
+        for ext in ["json", "out", "err", "done", "settings.json"] {
             let _ = fs::remove_file(old.with_extension(ext));
         }
     }

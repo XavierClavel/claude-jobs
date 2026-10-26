@@ -107,6 +107,9 @@ function Run({ detail }: { detail: RunDetail }) {
           Status: {STATUS_LABEL[detail.status]}
           {detail.exit_code !== null ? ` (exit code ${detail.exit_code})` : ''}
         </div>
+        {detail.interactive && (
+          <div>Interactive session: the result and cost come from its transcript.</div>
+        )}
         <div>
           Duration: {duration(detail.duration_s)} · turns: {detail.num_turns ?? '—'} · cost:{' '}
           {cost(detail.cost_usd)}

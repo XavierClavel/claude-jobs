@@ -41,6 +41,7 @@ mod tests {
             enabled: true,
             claude: String::new(),
             path: String::new(),
+            interactive: false,
         }
     }
 

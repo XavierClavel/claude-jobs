@@ -8,12 +8,14 @@ export function JobCard({
   onToggle,
   onEdit,
   onHistory,
+  onWatch,
 }: {
   job: JobView
   onRun: () => void
   onToggle: () => void
   onEdit: () => void
   onHistory: () => void
+  onWatch: () => void
 }) {
   const last = job.last_run
   const running = last?.status === 'running'
@@ -30,6 +32,7 @@ export function JobCard({
           <Chip tone="warn">Not loaded in launchd</Chip>
         )}
         {last && <Chip tone={runTone(last.status)}>Last run: {STATUS_LABEL[last.status]}</Chip>}
+        {job.interactive && <Chip tone="muted">Interactive</Chip>}
       </div>
       <div className="lines">
         <div>
@@ -51,6 +54,11 @@ export function JobCard({
         <button type="button" onClick={onRun} disabled={running}>
           {running ? 'Running…' : 'Run now'}
         </button>
+        {running && job.interactive && (
+          <button type="button" onClick={onWatch}>
+            Watch
+          </button>
+        )}
         <button type="button" onClick={onToggle}>
           {job.enabled ? 'Pause' : 'Resume'}
         </button>

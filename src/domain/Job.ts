@@ -17,4 +17,8 @@ export type Job = {
   enabled: boolean
   claude: string
   path: string
+  /**
+   * Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
+   */
+  interactive: boolean
 }
