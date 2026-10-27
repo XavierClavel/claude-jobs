@@ -3,7 +3,7 @@ import { api, errorsOf } from '../api'
 import type { JobView } from '../domain/JobView'
 import type { RunDetail } from '../domain/RunDetail'
 import type { RunRecord } from '../domain/RunRecord'
-import { cost, dateTime, duration, STATUS_LABEL } from '../format'
+import { cost, dateTime, duration, STATUS_LABEL, TRIGGER_LABEL } from '../format'
 import { Chip, runTone } from './Chip'
 
 export function History({ job, onClose }: { job: JobView; onClose: () => void }) {
@@ -77,7 +77,7 @@ export function History({ job, onClose }: { job: JobView; onClose: () => void })
                   tabIndex={0}
                 >
                   <td>{dateTime(r.started_at)}</td>
-                  <td className="muted">{r.trigger === 'manual' ? 'By hand' : 'Schedule'}</td>
+                  <td className="muted">{TRIGGER_LABEL[r.trigger]}</td>
                   <td>
                     <Chip tone={runTone(r.status)}>{STATUS_LABEL[r.status]}</Chip>
                   </td>

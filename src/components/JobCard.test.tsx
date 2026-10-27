@@ -19,6 +19,7 @@ function job(overrides: Partial<JobView> = {}): JobView {
     claude: '/bin/claude',
     path: '/usr/bin',
     interactive: false,
+    catch_up: false,
     label: 'com.claude-jobs.photobook-monitor',
     loaded: true,
     next_run: '2026-10-27T09:00:00+01:00',
@@ -97,6 +98,42 @@ describe('JobCard', () => {
       />,
     )
     expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled()
+  })
+
+  it('says when the last run caught up a missed time', () => {
+    const caughtUp = job({
+      last_run: {
+        id: '20261027T081700Z',
+        job: 'photobook-monitor',
+        trigger: 'catch-up',
+        status: 'ok',
+        started_at: '2026-10-27T08:17:00Z',
+        ended_at: '2026-10-27T08:18:41Z',
+        duration_s: 101,
+        exit_code: 0,
+        cost_usd: 0.65,
+        num_turns: 23,
+        session_id: null,
+        result: 'done',
+        error: null,
+        pid: 1,
+        claude_pid: null,
+        prompt: '/photobook-monitor',
+        interactive: true,
+        tmux_session: null,
+      },
+    })
+    render(
+      <JobCard
+        job={caughtUp}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={noop}
+      />,
+    )
+    expect(screen.getByText(/caught up at login/)).toBeInTheDocument()
   })
 })
 

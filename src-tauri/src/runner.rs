@@ -1,14 +1,17 @@
 //! One headless run of a job: `claude -p <prompt> --output-format json`, recorded in the job's history.
 
 use crate::jobs::{self, Job};
-use crate::paths;
 use crate::runs::{self, RunRecord, RunStatus, Trigger};
-use chrono::{SecondsFormat, Utc};
+use crate::{paths, schedule};
+use chrono::{DateTime, Local, SecondsFormat, Utc};
 use std::fs::File;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+
+const NETWORK_WAIT: Duration = Duration::from_secs(300);
 
 /// Exit codes for launchd's log: 0 ok, 1 the run failed, 2 no such job, 3 already running.
 pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
@@ -75,6 +78,90 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
     } else {
         1
     }
+}
+
+/// Starts `run <job>` in its own process, detached from the caller, with the environment launchd gives the job.
+pub fn spawn(job: &Job, trigger: Trigger) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find the app's binary: {e}"))?;
+    std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(paths::logs_dir().join(format!("{}.launchd.log", job.id)))
+        .map_err(|e| e.to_string())?;
+    let mut cmd = Command::new(exe);
+    cmd.args(["run", &job.id]);
+    match trigger {
+        Trigger::Schedule => {}
+        Trigger::Manual => {
+            cmd.args(["--trigger", "manual"]);
+        }
+        Trigger::CatchUp => {
+            cmd.args(["--trigger", "catch-up"]);
+        }
+    }
+    cmd.env_clear()
+        .env("PATH", &job.path)
+        .env("HOME", paths::home())
+        .env("USER", std::env::var("USER").unwrap_or_default())
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().map_err(|e| e.to_string())?)
+        .stderr(log)
+        // Keeps running if the caller exits.
+        .process_group(0)
+        .spawn()
+        .map_err(|e| format!("cannot start the run: {e}"))?;
+    Ok(())
+}
+
+/// What the login agent calls: starts every job whose last scheduled time passed while the Mac was off.
+pub fn catch_up() -> i32 {
+    let all = match jobs::load() {
+        Ok(all) => all,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let now = Local::now();
+    let due: Vec<&Job> = all
+        .iter()
+        .filter(|job| {
+            let last = runs::list(&job.id, 1).into_iter().next();
+            let started = last.and_then(|r| DateTime::parse_from_rfc3339(&r.started_at).ok());
+            schedule::missed_run(job, now, started).is_some()
+        })
+        .collect();
+    if due.is_empty() {
+        return 0;
+    }
+    wait_for_network();
+    let mut code = 0;
+    for job in due {
+        eprintln!("{}: catching up the run missed while the Mac was off", job.id);
+        if let Err(e) = spawn(job, Trigger::CatchUp) {
+            eprintln!("{}: {e}", job.id);
+            code = 1;
+        }
+    }
+    code
+}
+
+/// Right after login Wi-Fi may not be up yet, and a run would fail on its first request.
+fn wait_for_network() {
+    let deadline = Instant::now() + NETWORK_WAIT;
+    while Instant::now() < deadline {
+        let reachable = ("api.anthropic.com", 443)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.next())
+            .is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok());
+        if reachable {
+            return;
+        }
+        thread::sleep(Duration::from_secs(5));
+    }
+    eprintln!("no network after {} s, starting anyway", NETWORK_WAIT.as_secs());
 }
 
 fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {

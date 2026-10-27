@@ -1,13 +1,12 @@
 //! What the window can ask for. Every write goes through one lock, so two saves cannot interleave.
 
 use crate::jobs::{self, Defaults, Job};
-use crate::runs::{self, RunDetail, RunRecord};
-use crate::{interactive, launchd, paths, schedule};
+use crate::runs::{self, RunDetail, RunRecord, Trigger};
+use crate::{interactive, launchd, paths, runner, schedule};
 use chrono::{Local, SecondsFormat};
 use serde::Serialize;
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Mutex;
 use ts_rs::TS;
 
@@ -83,6 +82,7 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
         None => all.push(job.clone()),
     }
     jobs::save(&all)?;
+    launchd::apply_catch_up(&all, &exe()?)?;
     Ok(view(job))
 }
 
@@ -94,7 +94,9 @@ pub fn delete_job(id: String) -> Reply<()> {
         return Err(format!("No job called {id}.").into());
     }
     launchd::remove(&id);
-    jobs::save(&all.into_iter().filter(|j| j.id != id).collect::<Vec<_>>())?;
+    let rest: Vec<Job> = all.into_iter().filter(|j| j.id != id).collect();
+    jobs::save(&rest)?;
+    launchd::apply_catch_up(&rest, &exe()?)?;
     Ok(())
 }
 
@@ -107,6 +109,7 @@ pub fn set_enabled(id: String, enabled: bool) -> Reply<JobView> {
     let job = job.clone();
     launchd::apply(&job, &exe()?)?;
     jobs::save(&all)?;
+    launchd::apply_catch_up(&all, &exe()?)?;
     Ok(view(job))
 }
 
@@ -117,25 +120,7 @@ pub fn run_now(id: String) -> Reply<()> {
     if runs::is_running(&id) {
         return Err("This job is already running.".to_string().into());
     }
-    std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(paths::logs_dir().join(format!("{id}.launchd.log")))
-        .map_err(|e| e.to_string())?;
-    Command::new(exe()?)
-        .args(["run", &id, "--trigger", "manual"])
-        .env_clear()
-        .env("PATH", &job.path)
-        .env("HOME", paths::home())
-        .env("USER", std::env::var("USER").unwrap_or_default())
-        .stdin(Stdio::null())
-        .stdout(log.try_clone().map_err(|e| e.to_string())?)
-        .stderr(log)
-        // Keeps running if the window closes.
-        .process_group(0)
-        .spawn()
-        .map_err(|e| format!("cannot start the run: {e}"))?;
+    runner::spawn(&job, Trigger::Manual)?;
     Ok(())
 }
 
@@ -190,5 +175,8 @@ pub fn sync_launchd() {
                 eprintln!("could not update the schedule of {}: {e}", job.id);
             }
         }
+    }
+    if let Err(e) = launchd::apply_catch_up(&all, &exe) {
+        eprintln!("could not update the login catch-up: {e}");
     }
 }

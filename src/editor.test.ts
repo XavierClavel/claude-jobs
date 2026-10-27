@@ -8,6 +8,7 @@ describe('editor drafts', () => {
     expect(draft.time).toBe('09:00')
     expect(draft.claude).toBe('/bin/claude')
     expect(draft.enabled).toBe(true)
+    expect(draft.catchUp).toBe(false)
   })
 
   it('turns the typed fields into a job', () => {
@@ -20,6 +21,7 @@ describe('editor drafts', () => {
       timeout: '45',
       weekdays: [5, 1],
       tools: 'Read\nBash(python3:*)',
+      catchUp: true,
     })
     expect(job).toMatchObject({
       id: 'weekly',
@@ -28,6 +30,7 @@ describe('editor drafts', () => {
       timeout_minutes: 45,
       weekdays: [1, 5],
       allowed_tools: ['Read', 'Bash(python3:*)'],
+      catch_up: true,
     })
   })
 })

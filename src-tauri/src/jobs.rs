@@ -37,6 +37,9 @@ pub struct Job {
     /// Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
     #[serde(default)]
     pub interactive: bool,
+    /// Run at the next login when the Mac was off at the scheduled time, if that was less than a day ago.
+    #[serde(default)]
+    pub catch_up: bool,
 }
 
 fn default_timeout() -> u32 {
@@ -224,6 +227,7 @@ mod tests {
             claude: "/bin/sh".into(),
             path: "/usr/bin:/bin".into(),
             interactive: false,
+            catch_up: false,
         }
     }
 

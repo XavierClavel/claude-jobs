@@ -21,4 +21,8 @@ export type Job = {
    * Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
    */
   interactive: boolean
+  /**
+   * Run at the next login when the Mac was off at the scheduled time, if that was less than a day ago.
+   */
+  catch_up: boolean
 }

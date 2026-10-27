@@ -1,6 +1,13 @@
 import type { JobView } from '../domain/JobView'
+import type { Trigger } from '../domain/Trigger'
 import { ago, cost, dateTime, duration, STATUS_LABEL, scheduleText } from '../format'
 import { Chip, runTone } from './Chip'
+
+const TRIGGER_NOTE: Record<Trigger, string> = {
+  schedule: '',
+  manual: ' · started by hand',
+  'catch-up': ' · caught up at login',
+}
 
 export function JobCard({
   job,
@@ -46,7 +53,7 @@ export function JobCard({
             : running
               ? `Running since ${dateTime(last.started_at)}`
               : `Last run ${ago(last.started_at)} · ${duration(last.duration_s)} · ${cost(last.cost_usd)}${
-                  last.trigger === 'manual' ? ' · started by hand' : ''
+                  TRIGGER_NOTE[last.trigger]
                 }`}
         </div>
       </div>

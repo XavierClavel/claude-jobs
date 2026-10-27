@@ -1,4 +1,5 @@
-//! Each enabled job is a launchd agent, `com.claude-jobs.<id>`, that calls this app's binary with `run <id>`.
+//! Each enabled job is a launchd agent, `com.claude-jobs.<id>`, that calls this app's binary with `run <id>`. One more
+//! agent, `com.claude-jobs.app.catch-up`, calls `catch-up` at login while a job asks for it.
 
 use crate::jobs::Job;
 use crate::paths;
@@ -9,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const LABEL_PREFIX: &str = "com.claude-jobs.";
+/// Not a valid job id, so it cannot clash with a job's agent.
+const CATCH_UP: &str = "app.catch-up";
 
 pub fn label(job_id: &str) -> String {
     format!("{LABEL_PREFIX}{job_id}")
@@ -51,7 +54,10 @@ enum CalendarInterval {
 struct Agent {
     label: String,
     program_arguments: Vec<String>,
-    start_calendar_interval: CalendarInterval,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_calendar_interval: Option<CalendarInterval>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    run_at_load: bool,
     environment_variables: BTreeMap<String, String>,
     standard_out_path: String,
     standard_error_path: String,
@@ -71,24 +77,10 @@ fn interval(job: &Job) -> CalendarInterval {
     )
 }
 
-fn write_plist(job: &Job, exe: &Path) -> Result<(), String> {
-    fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
+fn write_plist(id: &str, agent: &Agent) -> Result<(), String> {
     fs::create_dir_all(paths::agents_dir()).map_err(|e| e.to_string())?;
-    let log = paths::logs_dir().join(format!("{}.launchd.log", job.id)).display().to_string();
-    let agent = Agent {
-        label: label(&job.id),
-        program_arguments: vec![exe.display().to_string(), "run".into(), job.id.clone()],
-        start_calendar_interval: interval(job),
-        environment_variables: BTreeMap::from([
-            ("PATH".to_string(), job.path.clone()),
-            ("HOME".to_string(), paths::home().display().to_string()),
-        ]),
-        standard_out_path: log.clone(),
-        standard_error_path: log,
-        process_type: "Background".into(),
-    };
-    let path = plist_path(&job.id);
-    plist::to_file_xml(&path, &agent).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    let path = plist_path(id);
+    plist::to_file_xml(&path, agent).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     let lint = Command::new("plutil").arg("-lint").arg(&path).output().map_err(|e| e.to_string())?;
     if !lint.status.success() {
         return Err(format!("the launchd file is invalid: {}", String::from_utf8_lossy(&lint.stdout).trim()));
@@ -96,21 +88,72 @@ fn write_plist(job: &Job, exe: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Makes launchd match the job: loaded with its schedule when enabled, gone when paused.
-pub fn apply(job: &Job, exe: &Path) -> Result<(), String> {
-    let target = format!("{}/{}", domain(), label(&job.id));
-    let _ = launchctl(&["bootout", &target]);
-    if !job.enabled {
-        let _ = fs::remove_file(plist_path(&job.id));
-        return Ok(());
-    }
-    write_plist(job, exe)?;
-    let path = plist_path(&job.id).display().to_string();
+fn log_path(name: &str) -> Result<String, String> {
+    fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
+    Ok(paths::logs_dir().join(format!("{name}.launchd.log")).display().to_string())
+}
+
+fn job_agent(job: &Job, exe: &Path) -> Result<Agent, String> {
+    let log = log_path(&job.id)?;
+    Ok(Agent {
+        label: label(&job.id),
+        program_arguments: vec![exe.display().to_string(), "run".into(), job.id.clone()],
+        start_calendar_interval: Some(interval(job)),
+        run_at_load: false,
+        environment_variables: BTreeMap::from([
+            ("PATH".to_string(), job.path.clone()),
+            ("HOME".to_string(), paths::home().display().to_string()),
+        ]),
+        standard_out_path: log.clone(),
+        standard_error_path: log,
+        process_type: "Background".into(),
+    })
+}
+
+fn load(id: &str, agent: &Agent) -> Result<(), String> {
+    let _ = launchctl(&["bootout", &format!("{}/{}", domain(), label(id))]);
+    write_plist(id, agent)?;
+    let path = plist_path(id).display().to_string();
     let out = launchctl(&["bootstrap", &domain(), &path]).ok_or("cannot run launchctl")?;
-    if !out.status.success() && !is_loaded(&job.id) {
+    if !out.status.success() && !is_loaded(id) {
         return Err(format!("launchctl bootstrap failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
     Ok(())
+}
+
+/// Makes launchd match the job: loaded with its schedule when enabled, gone when paused.
+pub fn apply(job: &Job, exe: &Path) -> Result<(), String> {
+    if !job.enabled {
+        remove(&job.id);
+        return Ok(());
+    }
+    load(&job.id, &job_agent(job, exe)?)
+}
+
+/// Loads the login agent while an enabled job wants catch-ups, and removes it otherwise. Loading it runs it once.
+pub fn apply_catch_up(jobs: &[Job], exe: &Path) -> Result<(), String> {
+    if !jobs.iter().any(|j| j.enabled && j.catch_up) {
+        remove(CATCH_UP);
+        return Ok(());
+    }
+    if program_of(CATCH_UP).as_deref() == Some(&*exe.display().to_string()) && is_loaded(CATCH_UP) {
+        return Ok(());
+    }
+    let log = log_path(CATCH_UP)?;
+    let agent = Agent {
+        label: label(CATCH_UP),
+        program_arguments: vec![exe.display().to_string(), "catch-up".into()],
+        start_calendar_interval: None,
+        run_at_load: true,
+        environment_variables: BTreeMap::from([
+            ("PATH".to_string(), "/usr/bin:/bin:/usr/sbin:/sbin".to_string()),
+            ("HOME".to_string(), paths::home().display().to_string()),
+        ]),
+        standard_out_path: log.clone(),
+        standard_error_path: log,
+        process_type: "Background".into(),
+    };
+    load(CATCH_UP, &agent)
 }
 
 pub fn remove(job_id: &str) {
@@ -145,6 +188,7 @@ mod tests {
             claude: String::new(),
             path: String::new(),
             interactive: false,
+            catch_up: false,
         }
     }
 
@@ -154,6 +198,11 @@ mod tests {
             interval(&job(vec![])),
             CalendarInterval::Daily(CalendarEntry { weekday: None, hour: 9, minute: 30 })
         );
+    }
+
+    #[test]
+    fn the_login_agent_cannot_clash_with_a_job() {
+        assert!(!crate::jobs::valid_id(CATCH_UP));
     }
 
     #[test]

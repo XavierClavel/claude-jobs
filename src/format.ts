@@ -1,5 +1,6 @@
 import type { Job } from './domain/Job'
 import type { RunStatus } from './domain/RunStatus'
+import type { Trigger } from './domain/Trigger'
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
@@ -9,6 +10,12 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   failed: 'Failed',
   timeout: 'Timed out',
   interrupted: 'Interrupted',
+}
+
+export const TRIGGER_LABEL: Record<Trigger, string> = {
+  schedule: 'Schedule',
+  manual: 'By hand',
+  'catch-up': 'Catch-up',
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')

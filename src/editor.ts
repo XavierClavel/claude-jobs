@@ -17,6 +17,7 @@ export type Draft = {
   path: string
   enabled: boolean
   interactive: boolean
+  catchUp: boolean
 }
 
 export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
@@ -34,6 +35,7 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     path: job?.path ?? defaults?.path ?? '',
     enabled: job?.enabled ?? true,
     interactive: job?.interactive ?? false,
+    catchUp: job?.catch_up ?? false,
   }
 }
 
@@ -54,5 +56,6 @@ export function toJob(draft: Draft): Job {
     claude: draft.claude,
     path: draft.path.trim(),
     interactive: draft.interactive,
+    catch_up: draft.catchUp,
   }
 }

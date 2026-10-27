@@ -190,6 +190,19 @@ export function JobEditor({
       <label className="check">
         <input
           type="checkbox"
+          checked={draft.catchUp}
+          onChange={(e) => set('catchUp', e.target.checked)}
+        />
+        Catch up a missed run
+      </label>
+      <p className="muted hint">
+        If the Mac was off at the scheduled time, runs at the next login, as long as that is less
+        than a day late. A Mac that was asleep needs no catch-up: launchd runs the job when it
+        wakes.
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={draft.enabled}
           onChange={(e) => set('enabled', e.target.checked)}
         />

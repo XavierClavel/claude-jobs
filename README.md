@@ -13,6 +13,12 @@ turns it into a launchd agent that calls the app's own binary at that time:
 Runs happen whether the app is open or not. launchd runs a missed time when the Mac wakes; it does not run while the
 Mac is off or you are logged out.
 
+A job with **Catch up a missed run** makes up for that: while one is enabled, a login agent
+(`com.claude-jobs.app.catch-up`, calling `claude-jobs catch-up`) checks each such job at login and starts it when its
+last scheduled time has passed with no run since, as long as that time is less than a day old. It waits up to 5 minutes
+for the network first. Loading the agent also runs it, so ticking the box after a missed time catches it up at once.
+Catch-up runs show as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
+
 ## Files
 
 Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_jobs.py` page:

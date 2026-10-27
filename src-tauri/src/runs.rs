@@ -26,6 +26,9 @@ pub enum RunStatus {
 pub enum Trigger {
     Schedule,
     Manual,
+    /// Started at login for a scheduled time the Mac was off for.
+    #[serde(rename = "catch-up")]
+    CatchUp,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
