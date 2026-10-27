@@ -69,6 +69,7 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
             .collect();
     args.extend(env);
     args.extend([job.claude.clone(), "--settings".into(), settings.display().to_string()]);
+    args.extend(["--append-system-prompt".into(), crate::runner::STATUS_INSTRUCTION.into()]);
     if !job.model.is_empty() {
         args.extend(["--model".into(), job.model.clone()]);
     }
@@ -112,6 +113,7 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
                 rec.cost_usd = summary.cost_usd;
             }
             rec.status = RunStatus::Ok;
+            crate::runner::apply_verdict(rec);
         }
         None if timed_out => {
             rec.status = RunStatus::Timeout;

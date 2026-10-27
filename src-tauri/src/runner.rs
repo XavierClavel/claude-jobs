@@ -13,6 +13,35 @@ use std::time::{Duration, Instant};
 
 const NETWORK_WAIT: Duration = Duration::from_secs(300);
 
+/// A session that finishes is not a run that worked: Claude says which it was on the last line of its answer.
+pub const STATUS_INSTRUCTION: &str = "This is an unattended scheduled run that nobody watches. End your final \
+message with a line of its own: `RUN STATUS: FAILED` when the task could not be done (for example a data source, \
+credential or tool failed and you stopped), otherwise `RUN STATUS: OK`.";
+const STATUS_PREFIX: &str = "RUN STATUS:";
+
+/// Removes the status line from Claude's answer and returns whether it reported a failure.
+fn split_status(result: &str) -> (String, bool) {
+    let trimmed = result.trim_end();
+    let (body, last) = trimmed.rsplit_once('\n').unwrap_or(("", trimmed));
+    let last = last.trim().trim_matches('`').trim();
+    match last.strip_prefix(STATUS_PREFIX) {
+        Some(verdict) => (body.trim_end().to_string(), verdict.trim().eq_ignore_ascii_case("failed")),
+        None => (result.to_string(), false),
+    }
+}
+
+/// Turns a finished run Claude reported as failed into a failed run, its first line as the error.
+pub fn apply_verdict(rec: &mut RunRecord) {
+    let Some(result) = rec.result.take() else { return };
+    let (body, failed) = split_status(&result);
+    if failed && rec.status == RunStatus::Ok {
+        rec.status = RunStatus::Failed;
+        let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Claude reported a failure.");
+        rec.error = Some(first.to_string());
+    }
+    rec.result = Some(body);
+}
+
 /// Exit codes for launchd's log: 0 ok, 1 the run failed, 2 no such job, 3 already running.
 pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
     let job = match jobs::find(job_id) {
@@ -169,7 +198,7 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
     let out_path = dir.join(format!("{}.out", rec.id));
     let err_path = dir.join(format!("{}.err", rec.id));
     let mut cmd = Command::new(&job.claude);
-    cmd.args(["-p", &job.prompt, "--output-format", "json"]);
+    cmd.args(["-p", &job.prompt, "--output-format", "json", "--append-system-prompt", STATUS_INSTRUCTION]);
     if !job.model.is_empty() {
         cmd.args(["--model", &job.model]);
     }
@@ -210,7 +239,8 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
     } else {
         RunStatus::Ok
     };
-    if rec.status != RunStatus::Ok {
+    apply_verdict(rec);
+    if rec.status != RunStatus::Ok && rec.error.is_none() {
         let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
         let stderr_tail: String = stderr.chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
         rec.error = Some(match (stderr_tail.trim(), rec.result.as_deref()) {
@@ -260,7 +290,35 @@ fn notify(title: &str, message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::applescript_string;
+    use super::*;
+
+    fn finished(result: &str) -> RunRecord {
+        let text = format!(
+            r#"{{"id": "20261027T083651Z", "job": "j", "trigger": "catch-up", "status": "ok",
+                "started_at": "2026-10-27T08:36:51Z", "result": {}}}"#,
+            serde_json::to_string(result).expect("string")
+        );
+        serde_json::from_str(&text).expect("parses")
+    }
+
+    #[test]
+    fn a_run_claude_reports_as_failed_is_failed() {
+        let mut rec = finished("Nothing was updated this run.\n\nRun gcloud auth login.\n\n`RUN STATUS: FAILED`\n");
+        apply_verdict(&mut rec);
+        assert_eq!(rec.status, RunStatus::Failed);
+        assert_eq!(rec.error.as_deref(), Some("Nothing was updated this run."));
+        assert_eq!(rec.result.as_deref(), Some("Nothing was updated this run.\n\nRun gcloud auth login."));
+    }
+
+    #[test]
+    fn a_run_reported_ok_or_without_a_status_stays_ok() {
+        let mut rec = finished("Dashboard updated.\nRUN STATUS: OK");
+        apply_verdict(&mut rec);
+        assert_eq!((rec.status, rec.result.as_deref()), (RunStatus::Ok, Some("Dashboard updated.")));
+        let mut rec = finished("Dashboard updated.");
+        apply_verdict(&mut rec);
+        assert_eq!((rec.status, rec.result.as_deref()), (RunStatus::Ok, Some("Dashboard updated.")));
+    }
 
     #[test]
     fn notification_text_is_escaped() {
