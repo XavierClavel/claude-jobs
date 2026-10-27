@@ -135,6 +135,9 @@ pub fn watch_run(id: String) -> Reply<()> {
     if !interactive::has_session(&tmux, &session) {
         return Err("There is no live session to watch: the run has finished.".to_string().into());
     }
+    if interactive::attached_ttys(&tmux, &session).iter().any(|tty| focus_terminal_tab(tty)) {
+        return Ok(());
+    }
     let body = format!(
         "#!/bin/zsh\nexec {} -L {} attach -t {}\n",
         interactive::shell_quote(&tmux.display().to_string()),
@@ -143,6 +146,31 @@ pub fn watch_run(id: String) -> Reply<()> {
     );
     open_in_terminal(&format!("watch-{id}"), &body)?;
     Ok(())
+}
+
+/// Brings forward the Terminal tab on `tty`. The first time, macOS asks to let Claude Jobs control Terminal; without
+/// that permission this returns false and Watch opens a new window as before.
+fn focus_terminal_tab(tty: &str) -> bool {
+    const SCRIPT: &str = r#"on run argv
+    set wanted to item 1 of argv
+    tell application "Terminal"
+        repeat with w in windows
+            repeat with t in tabs of w
+                if tty of t is wanted then
+                    set selected of t to true
+                    set index of w to 1
+                    activate
+                    return "found"
+                end if
+            end repeat
+        end repeat
+    end tell
+    return "missing"
+end run"#;
+    Command::new("osascript")
+        .args(["-e", SCRIPT, tty])
+        .output()
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "found")
 }
 
 /// A .command file opens in Terminal by itself, without asking to control Terminal.
@@ -161,10 +189,10 @@ pub fn gcloud_status() -> GcloudStatus {
     gcloud::status()
 }
 
-/// Opens Terminal on `gcloud auth login`, which signs in through the browser.
+/// Signs in to Google Cloud through the browser and returns the new status once done.
 #[tauri::command(async)]
-pub fn gcloud_sign_in() -> Reply<()> {
-    open_in_terminal("gcloud-sign-in", &gcloud::sign_in_script()?)
+pub fn gcloud_sign_in() -> Reply<GcloudStatus> {
+    Ok(gcloud::sign_in()?)
 }
 
 #[tauri::command(async)]

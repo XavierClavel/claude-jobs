@@ -52,15 +52,17 @@ pnpm app:build          # src-tauri/target/release/bundle/macos/Claude Jobs.app
 A headless `claude -p` session has no Artifact tools. A job marked **Interactive session** runs a real Claude Code
 session instead, in its own tmux server (`tmux -L claude-jobs`, so it never mixes with yours). A Stop hook passed
 with `--settings` tells the runner when Claude has finished; the runner then sends `/exit` and reads the result,
-turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session. Needs
+turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session, or brings forward the Terminal tab already showing it (macOS
+asks once to let Claude Jobs control Terminal; without that, it opens a new window). Needs
 `brew install tmux`.
 
 ## Google Cloud
 
 Jobs that read BigQuery or Cloud Logging fail once gcloud's credentials expire ("Reauthentication failed"). The
 window checks them at start, every 5 minutes and when it comes back to the front, by printing an access token, and
-shows a warning when they are gone. **Sign in to Google Cloud** opens Terminal on `gcloud auth login --update-adc`,
-which signs in through the browser and refreshes the application default credentials too.
+shows a warning when they are gone. **Sign in to Google Cloud** runs `gcloud auth login --update-adc` in the
+background: the browser opens, and the bar turns green once you have signed in there (it gives up after 5 minutes).
+That refreshes the application default credentials too.
 
 ## Limits
 

@@ -8,6 +8,7 @@ describe('GcloudBar', () => {
     render(
       <GcloudBar
         status={{ installed: true, signed_in: false, account: 'me@example.com' }}
+        signingIn={false}
         onSignIn={onSignIn}
       />,
     )
@@ -20,6 +21,7 @@ describe('GcloudBar', () => {
     render(
       <GcloudBar
         status={{ installed: true, signed_in: true, account: 'me@example.com' }}
+        signingIn={false}
         onSignIn={() => {}}
       />,
     )
@@ -27,10 +29,23 @@ describe('GcloudBar', () => {
     expect(screen.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument()
   })
 
+  it('waits for the browser while signing in', () => {
+    render(
+      <GcloudBar
+        status={{ installed: true, signed_in: false, account: null }}
+        signingIn
+        onSignIn={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Waiting for the browser…' })).toBeDisabled()
+    expect(screen.getByText('Finish signing in in your browser.')).toBeInTheDocument()
+  })
+
   it('shows nothing without gcloud', () => {
     const { container } = render(
       <GcloudBar
         status={{ installed: false, signed_in: false, account: null }}
+        signingIn={false}
         onSignIn={() => {}}
       />,
     )

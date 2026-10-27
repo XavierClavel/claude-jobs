@@ -32,6 +32,12 @@ pub fn has_session(bin: &Path, session: &str) -> bool {
     tmux(bin, &["has-session", "-t", session]).is_some_and(|o| o.status.success())
 }
 
+/// The terminals already showing a session, so Watch can bring one forward instead of opening another.
+pub fn attached_ttys(bin: &Path, session: &str) -> Vec<String> {
+    let Some(out) = tmux(bin, &["list-clients", "-t", session, "-F", "#{client_tty}"]) else { return vec![] };
+    String::from_utf8_lossy(&out.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
+}
+
 /// A single-quoted shell word.
 pub fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))

@@ -19,7 +19,7 @@ export const api = {
   listRuns: (id: string) => invoke<RunRecord[]>('list_runs', { id }),
   getRun: (id: string, runId: string) => invoke<RunDetail>('get_run', { id, runId }),
   gcloudStatus: () => invoke<GcloudStatus>('gcloud_status'),
-  gcloudSignIn: () => invoke<void>('gcloud_sign_in'),
+  gcloudSignIn: () => invoke<GcloudStatus>('gcloud_sign_in'),
 }
 
 export function errorsOf(error: unknown): string[] {

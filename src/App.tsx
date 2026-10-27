@@ -18,6 +18,7 @@ export function App() {
   const [history, setHistory] = useState<JobView | null>(null)
   const [banner, setBanner] = useState<string[]>([])
   const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
+  const [signingIn, setSigningIn] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -74,7 +75,17 @@ export function App() {
           New job
         </button>
       </header>
-      <GcloudBar status={gcloud} onSignIn={() => act(() => api.gcloudSignIn())} />
+      <GcloudBar
+        status={gcloud}
+        signingIn={signingIn}
+        onSignIn={() => {
+          setSigningIn(true)
+          api
+            .gcloudSignIn()
+            .then(setGcloud, (e) => setBanner(errorsOf(e)))
+            .finally(() => setSigningIn(false))
+        }}
+      />
       {banner.length > 0 && (
         <p className="errors banner" role="alert">
           {banner.join('\n')}

@@ -1,5 +1,5 @@
-//! Google Cloud sign-in. Jobs that read BigQuery or Cloud Logging fail once gcloud's credentials expire, and signing
-//! in again needs a browser, so the app checks them and opens Terminal on `gcloud auth login`.
+//! Google Cloud sign-in. Jobs that read BigQuery or Cloud Logging fail once gcloud's credentials expire, so the app
+//! checks them and runs `gcloud auth login` itself, which signs in through the browser without a terminal.
 
 use crate::{jobs, paths};
 use serde::Serialize;
@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use ts_rs::TS;
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+/// Long enough to pick an account and type a password; gcloud waits on its local redirect until then.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Serialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
@@ -44,25 +46,31 @@ fn find(path: &str) -> Option<PathBuf> {
     path.split(':').map(|d| Path::new(d).join("gcloud")).find(|p| p.is_file())
 }
 
-/// Runs gcloud and returns its trimmed stdout when it succeeds in time.
-fn gcloud(bin: &Path, path: &str, args: &[&str]) -> Option<String> {
+/// Runs gcloud; its trimmed stdout when it succeeds in time, otherwise the end of its stderr, or `None` on timeout.
+fn gcloud(bin: &Path, path: &str, args: &[&str], limit: Duration) -> Option<Result<String, String>> {
     let mut child = Command::new(bin)
         .args(args)
         .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + CHECK_TIMEOUT;
+    let deadline = Instant::now() + limit;
     while Instant::now() < deadline {
         if child.try_wait().ok()?.is_some() {
             let out = child.wait_with_output().ok()?;
-            return out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string());
+            if out.status.success() {
+                return Some(Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()));
+            }
+            let err = String::from_utf8_lossy(&out.stderr);
+            let tail: Vec<&str> = err.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            return Some(Err(tail[tail.len().saturating_sub(3)..].join(" ")));
         }
         thread::sleep(Duration::from_millis(100));
     }
     let _ = child.kill();
+    let _ = child.wait();
     None
 }
 
@@ -70,18 +78,24 @@ pub fn status() -> GcloudStatus {
     let path = search_path();
     let Some(bin) = find(&path) else { return GcloudStatus { installed: false, signed_in: false, account: None } };
     // Printing a token refreshes it, so this fails exactly when a run would ("Reauthentication failed").
-    let signed_in = gcloud(&bin, &path, &["auth", "print-access-token", "--quiet"]).is_some_and(|t| !t.is_empty());
-    let account = gcloud(&bin, &path, &["config", "get-value", "account", "--quiet"]).filter(|a| !a.is_empty());
+    let ok = |args: &[&str]| gcloud(&bin, &path, args, CHECK_TIMEOUT).and_then(Result::ok).filter(|o| !o.is_empty());
+    let signed_in = ok(&["auth", "print-access-token", "--quiet"]).is_some();
+    let account = ok(&["config", "get-value", "account", "--quiet"]);
     GcloudStatus { installed: true, signed_in, account }
 }
 
-/// The Terminal script that signs in: the gcloud CLI and the application default credentials the client libraries use.
-pub fn sign_in_script() -> Result<String, String> {
+/// Signs in through the browser, the gcloud CLI and the application default credentials the client libraries use.
+/// Returns once the sign-in is done, failed, or was left unfinished.
+pub fn sign_in() -> Result<GcloudStatus, String> {
     let path = search_path();
     let bin = find(&path).ok_or("gcloud is not installed.")?;
-    Ok(format!(
-        "#!/bin/zsh\nexport PATH={}\n{} auth login --update-adc\necho\nread -k1 '?Press any key to close this window.'\n",
-        crate::interactive::shell_quote(&path),
-        crate::interactive::shell_quote(&bin.display().to_string())
-    ))
+    let args = ["auth", "login", "--update-adc", "--quiet"];
+    match gcloud(&bin, &path, &args, SIGN_IN_TIMEOUT) {
+        Some(Ok(_)) => Ok(status()),
+        Some(Err(e)) => Err(format!("Google Cloud sign-in failed: {e}")),
+        None => Err(format!(
+            "The Google Cloud sign-in was not finished within {} minutes. Try again.",
+            SIGN_IN_TIMEOUT.as_secs() / 60
+        )),
+    }
 }
