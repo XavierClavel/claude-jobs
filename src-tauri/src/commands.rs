@@ -1,5 +1,6 @@
 //! What the window can ask for. Every write goes through one lock, so two saves cannot interleave.
 
+use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord, Trigger};
 use crate::{interactive, launchd, paths, runner, schedule};
@@ -134,20 +135,36 @@ pub fn watch_run(id: String) -> Reply<()> {
     if !interactive::has_session(&tmux, &session) {
         return Err("There is no live session to watch: the run has finished.".to_string().into());
     }
-    // A .command file opens in Terminal by itself, without asking to control Terminal.
-    std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
-    let script = paths::logs_dir().join(format!("watch-{id}.command"));
     let body = format!(
         "#!/bin/zsh\nexec {} -L {} attach -t {}\n",
         interactive::shell_quote(&tmux.display().to_string()),
         interactive::SOCKET,
         interactive::shell_quote(&session)
     );
+    open_in_terminal(&format!("watch-{id}"), &body)?;
+    Ok(())
+}
+
+/// A .command file opens in Terminal by itself, without asking to control Terminal.
+fn open_in_terminal(name: &str, body: &str) -> Reply<()> {
+    std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
+    let script = paths::logs_dir().join(format!("{name}.command"));
     std::fs::write(&script, body).map_err(|e| e.to_string())?;
     std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .map_err(|e| e.to_string())?;
     Command::new("open").arg(&script).spawn().map_err(|e| format!("cannot open Terminal: {e}"))?;
     Ok(())
+}
+
+#[tauri::command(async)]
+pub fn gcloud_status() -> GcloudStatus {
+    gcloud::status()
+}
+
+/// Opens Terminal on `gcloud auth login`, which signs in through the browser.
+#[tauri::command(async)]
+pub fn gcloud_sign_in() -> Reply<()> {
+    open_in_terminal("gcloud-sign-in", &gcloud::sign_in_script()?)
 }
 
 #[tauri::command(async)]

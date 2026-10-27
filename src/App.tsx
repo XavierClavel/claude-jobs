@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorsOf } from './api'
 import { Dialog } from './components/Dialog'
+import { GcloudBar } from './components/GcloudBar'
 import { History } from './components/History'
 import { JobCard } from './components/JobCard'
 import { JobEditor } from './components/JobEditor'
 import type { Defaults } from './domain/Defaults'
+import type { GcloudStatus } from './domain/GcloudStatus'
 import type { JobView } from './domain/JobView'
 
 type Editing = { job: JobView | null } | null
@@ -15,6 +17,7 @@ export function App() {
   const [editing, setEditing] = useState<Editing>(null)
   const [history, setHistory] = useState<JobView | null>(null)
   const [banner, setBanner] = useState<string[]>([])
+  const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -35,6 +38,18 @@ export function App() {
     const timer = setInterval(refresh, running ? 4000 : 30000)
     return () => clearInterval(timer)
   }, [refresh, running])
+
+  // Checked again when the window comes back, which is when a sign-in in Terminal has just finished.
+  useEffect(() => {
+    const check = () => api.gcloudStatus().then(setGcloud, () => setGcloud(null))
+    check()
+    const timer = setInterval(check, 300000)
+    window.addEventListener('focus', check)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', check)
+    }
+  }, [])
 
   useEffect(() => {
     if (!banner.length) return
@@ -59,6 +74,7 @@ export function App() {
           New job
         </button>
       </header>
+      <GcloudBar status={gcloud} onSignIn={() => act(() => api.gcloudSignIn())} />
       {banner.length > 0 && (
         <p className="errors banner" role="alert">
           {banner.join('\n')}

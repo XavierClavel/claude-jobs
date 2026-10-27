@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod gcloud;
 pub mod interactive;
 pub mod jobs;
 pub mod launchd;
@@ -26,6 +27,8 @@ pub fn run() {
             commands::watch_run,
             commands::list_runs,
             commands::get_run,
+            commands::gcloud_status,
+            commands::gcloud_sign_in,
         ])
         .run(tauri::generate_context!())
         .expect("Claude Jobs could not start");

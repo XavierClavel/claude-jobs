@@ -55,6 +55,13 @@ with `--settings` tells the runner when Claude has finished; the runner then sen
 turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session. Needs
 `brew install tmux`.
 
+## Google Cloud
+
+Jobs that read BigQuery or Cloud Logging fail once gcloud's credentials expire ("Reauthentication failed"). The
+window checks them at start, every 5 minutes and when it comes back to the front, by printing an access token, and
+shows a warning when they are gone. **Sign in to Google Cloud** opens Terminal on `gcloud auth login --update-adc`,
+which signs in through the browser and refreshes the application default credentials too.
+
 ## Limits
 
 - An interactive job waits on any permission prompt until its timeout: allow every tool it needs (your default

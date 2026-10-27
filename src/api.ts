@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ApiError } from './domain/ApiError'
 import type { Defaults } from './domain/Defaults'
+import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
 import type { RunDetail } from './domain/RunDetail'
@@ -17,6 +18,8 @@ export const api = {
   watchRun: (id: string) => invoke<void>('watch_run', { id }),
   listRuns: (id: string) => invoke<RunRecord[]>('list_runs', { id }),
   getRun: (id: string, runId: string) => invoke<RunDetail>('get_run', { id, runId }),
+  gcloudStatus: () => invoke<GcloudStatus>('gcloud_status'),
+  gcloudSignIn: () => invoke<void>('gcloud_sign_in'),
 }
 
 export function errorsOf(error: unknown): string[] {
