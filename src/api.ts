@@ -6,6 +6,7 @@ import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
 import type { RunDetail } from './domain/RunDetail'
 import type { RunRecord } from './domain/RunRecord'
+import type { TmuxStatus } from './domain/TmuxStatus'
 
 // One function per Rust command in `src-tauri/src/commands.rs`.
 export const api = {
@@ -20,6 +21,8 @@ export const api = {
   getRun: (id: string, runId: string) => invoke<RunDetail>('get_run', { id, runId }),
   gcloudStatus: () => invoke<GcloudStatus>('gcloud_status'),
   gcloudSignIn: () => invoke<GcloudStatus>('gcloud_sign_in'),
+  tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
+  installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
 }
 
 export function errorsOf(error: unknown): string[] {
