@@ -19,6 +19,13 @@ last scheduled time has passed with no run since, as long as that time is less t
 for the network first. Loading the agent also runs it, so ticking the box after a missed time catches it up at once.
 Catch-up runs show as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
 
+## Requirements
+
+- Claude Code, signed in (run `claude` once).
+- tmux for interactive jobs. When it is missing, ticking **Interactive session** in the editor offers to install it
+  with Homebrew (`brew install tmux`, in the background; what Homebrew printed is in `logs/tmux-install.log`).
+- The gcloud CLI for jobs that read Google Cloud.
+
 ## Files
 
 Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_jobs.py` page:
@@ -54,7 +61,14 @@ session instead, in its own tmux server (`tmux -L claude-jobs`, so it never mixe
 with `--settings` tells the runner when Claude has finished; the runner then sends `/exit` and reads the result,
 turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session, or brings forward the Terminal tab already showing it (macOS
 asks once to let Claude Jobs control Terminal; without that, it opens a new window). Needs
-`brew install tmux`.
+tmux: the editor installs it with Homebrew when it is missing, and refuses an interactive job without it.
+
+In a folder it does not trust yet, Claude Code opens on "Is this a project you trust?" and waits for an answer. Saving
+an interactive job, and starting its runs, records the working folder as trusted the way Claude Code describes:
+`projects[<folder>].hasTrustDialogAccepted` in `~/.claude.json`, written under Claude Code's own lock
+(`~/.claude.json.lock`). Claude Code never keeps that answer for the home folder, and the app does not write it either
+(it would trust every folder in it): an interactive job needs a folder of its own. Should the question still show, the
+run stops at once instead of waiting for its timeout.
 
 ## Google Cloud
 

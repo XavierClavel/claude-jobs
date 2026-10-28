@@ -3,7 +3,8 @@
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord, Trigger};
-use crate::{interactive, launchd, paths, runner, schedule};
+use crate::tmux::{self, TmuxStatus};
+use crate::{interactive, launchd, paths, runner, schedule, trust};
 use chrono::{Local, SecondsFormat};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -77,6 +78,10 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
     let _guard = lock();
     let mut all = jobs::load()?;
     let job = jobs::validate(job, &all, editing.as_deref())?;
+    if job.interactive {
+        // Here rather than at the first run, so a folder Claude Code cannot trust shows in the editor.
+        trust::ensure(&job.cwd)?;
+    }
     launchd::apply(&job, &exe()?)?;
     match all.iter_mut().find(|j| j.id == job.id) {
         Some(existing) => *existing = job.clone(),
@@ -193,6 +198,18 @@ pub fn gcloud_status() -> GcloudStatus {
 #[tauri::command(async)]
 pub fn gcloud_sign_in() -> Reply<GcloudStatus> {
     Ok(gcloud::sign_in()?)
+}
+
+/// Whether tmux, which interactive jobs need, is found on `path`, the job's PATH, and Homebrew can install it.
+#[tauri::command(async)]
+pub fn tmux_status(path: String) -> TmuxStatus {
+    tmux::status(&path)
+}
+
+/// Installs tmux with Homebrew and returns the new status once done.
+#[tauri::command(async)]
+pub fn install_tmux(path: String) -> Reply<TmuxStatus> {
+    Ok(tmux::install(&path)?)
 }
 
 #[tauri::command(async)]

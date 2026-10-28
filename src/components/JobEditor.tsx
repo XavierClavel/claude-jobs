@@ -1,9 +1,11 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { api, errorsOf } from '../api'
 import type { Defaults } from '../domain/Defaults'
 import type { JobView } from '../domain/JobView'
+import type { TmuxStatus } from '../domain/TmuxStatus'
 import { type Draft, toDraft, toJob } from '../editor'
 import { DAYS, slug } from '../format'
+import { TmuxNotice } from './TmuxNotice'
 
 export function JobEditor({
   job,
@@ -21,8 +23,28 @@ export function JobEditor({
   const [errors, setErrors] = useState<string[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [tmux, setTmux] = useState<TmuxStatus | null>(null)
+  const [installing, setInstalling] = useState(false)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
+
+  // An interactive job runs in tmux: checked where its runs will look, the job's PATH.
+  useEffect(() => {
+    if (!draft.interactive) return
+    api.tmuxStatus(draft.path.trim()).then(setTmux, () => setTmux(null))
+  }, [draft.interactive, draft.path])
+
+  async function installTmux() {
+    setInstalling(true)
+    try {
+      setTmux(await api.installTmux(draft.path.trim()))
+      setErrors([])
+    } catch (e) {
+      setErrors(errorsOf(e))
+    } finally {
+      setInstalling(false)
+    }
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -185,8 +207,13 @@ export function JobEditor({
       <p className="muted hint">
         Runs a real Claude Code session in tmux instead of <span className="mono">claude -p</span>.
         Needed for tools a headless run does not get, such as the Artifact tools; you can watch it
-        live while it runs.
+        live while it runs. Needs tmux, which the editor can install for you. Saving tells Claude
+        Code to trust the working folder, as accepting its trust question would; it never trusts
+        your home folder that way, so pick another one.
       </p>
+      {draft.interactive && (
+        <TmuxNotice status={tmux} installing={installing} onInstall={installTmux} />
+      )}
       <label className="check">
         <input
           type="checkbox"

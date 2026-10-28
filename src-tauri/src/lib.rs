@@ -7,6 +7,8 @@ pub mod paths;
 pub mod runner;
 pub mod runs;
 pub mod schedule;
+pub mod tmux;
+pub mod trust;
 
 pub fn run() {
     tauri::Builder::default()
@@ -29,6 +31,8 @@ pub fn run() {
             commands::get_run,
             commands::gcloud_status,
             commands::gcloud_sign_in,
+            commands::tmux_status,
+            commands::install_tmux,
         ])
         .run(tauri::generate_context!())
         .expect("Claude Jobs could not start");
