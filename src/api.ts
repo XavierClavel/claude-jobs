@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ApiError } from './domain/ApiError'
+import type { AppUpdate } from './domain/AppUpdate'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
@@ -23,6 +24,9 @@ export const api = {
   gcloudSignIn: () => invoke<GcloudStatus>('gcloud_sign_in'),
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
+  appVersion: () => invoke<string>('app_version'),
+  checkUpdate: () => invoke<AppUpdate | null>('check_update'),
+  installUpdate: () => invoke<void>('install_update'),
 }
 
 export function errorsOf(error: unknown): string[] {

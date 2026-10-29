@@ -5,6 +5,8 @@ import { GcloudBar } from './components/GcloudBar'
 import { History } from './components/History'
 import { JobCard } from './components/JobCard'
 import { JobEditor } from './components/JobEditor'
+import { UpdateBar } from './components/UpdateBar'
+import type { AppUpdate } from './domain/AppUpdate'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { JobView } from './domain/JobView'
@@ -14,11 +16,14 @@ type Editing = { job: JobView | null } | null
 export function App() {
   const [jobs, setJobs] = useState<JobView[] | null>(null)
   const [defaults, setDefaults] = useState<Defaults | null>(null)
+  const [version, setVersion] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [history, setHistory] = useState<JobView | null>(null)
   const [banner, setBanner] = useState<string[]>([])
   const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
   const [signingIn, setSigningIn] = useState(false)
+  const [update, setUpdate] = useState<AppUpdate | null>(null)
+  const [installing, setInstalling] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -31,6 +36,7 @@ export function App() {
   useEffect(() => {
     refresh()
     api.defaults().then(setDefaults, () => setDefaults(null))
+    api.appVersion().then(setVersion, () => setVersion(null))
   }, [refresh])
 
   // Faster while a run is going, so its end shows up without reloading.
@@ -52,6 +58,14 @@ export function App() {
     }
   }, [])
 
+  // The window may stay open for days. A failed check (offline, no release yet) keeps what the last one found.
+  useEffect(() => {
+    const check = () => api.checkUpdate().then(setUpdate, () => {})
+    check()
+    const timer = setInterval(check, 6 * 3600 * 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   useEffect(() => {
     if (!banner.length) return
     const timer = setTimeout(() => setBanner([]), 10000)
@@ -70,11 +84,22 @@ export function App() {
   return (
     <>
       <header className="top">
-        <h1>Claude Jobs</h1>
+        <h1>Claude Jobs {version && <span className="version muted">{version}</span>}</h1>
         <button type="button" className="primary" onClick={() => setEditing({ job: null })}>
           New job
         </button>
       </header>
+      <UpdateBar
+        update={update}
+        installing={installing}
+        onInstall={() => {
+          setInstalling(true)
+          api
+            .installUpdate()
+            .catch((e) => setBanner(errorsOf(e)))
+            .finally(() => setInstalling(false))
+        }}
+      />
       <GcloudBar
         status={gcloud}
         signingIn={signingIn}

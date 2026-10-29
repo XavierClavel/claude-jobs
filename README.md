@@ -29,6 +29,36 @@ Claude Jobs** button.
   with Homebrew (`brew install tmux`, in the background; what Homebrew printed is in `logs/tmux-install.log`).
 - The gcloud CLI for jobs that read Google Cloud.
 
+## Install
+
+On an Apple Silicon Mac, put the latest release in your own Applications folder, where updates can replace it without
+an administrator password:
+
+```sh
+mkdir -p ~/Applications
+curl -L https://github.com/XavierClavel/claude-jobs/releases/latest/download/Claude-Jobs_aarch64.app.tar.gz | tar -xz -C ~/Applications
+```
+
+The app is ad-hoc signed, so a copy downloaded with a browser is quarantined and macOS refuses to open it until you
+allow it in System Settings → Privacy & Security; `curl` does not quarantine it.
+
+## Updates
+
+The window checks the GitHub releases at start and every 6 hours. When a newer version is out, a bar offers
+**Install and restart**: it downloads the release, checks its signature against the public key in
+`src-tauri/tauri.conf.json`, swaps it in place of the app and reopens the window. Runs in progress carry on, and the
+launchd agents call the same path, so their next run is on the new version. A dev build never checks.
+
+To publish a version, bump `version` in `package.json` and merge to main. The Release workflow
+(`.github/workflows/release.yml`) sees a version with no release yet, runs the checks, then `pnpm release`: it builds
+the app, signs the update archive with the repository secret `TAURI_SIGNING_PRIVATE_KEY`, and creates the release
+`v<version>` with the archive and `latest.json`, the file the updater reads. A push to main that keeps the version
+releases nothing.
+
+`pnpm release` does the same from a Mac, signing with `~/.tauri/claude-jobs.key` (or `TAURI_SIGNING_PRIVATE_KEY`,
+with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has one); `pnpm release --dry-run` builds both files without
+publishing. Keep a copy of the key: installed apps only accept updates signed with it.
+
 ## Files
 
 Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_jobs.py` page:
@@ -69,6 +99,7 @@ pnpm test               # front-end tests
 pnpm test:rust          # Rust tests
 pnpm lint && pnpm typecheck
 pnpm app:build          # src-tauri/target/release/bundle/macos/Claude Jobs.app
+pnpm release            # publish package.json's version as a GitHub release (see Updates)
 ```
 
 ## Interactive jobs

@@ -4,12 +4,14 @@ use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord, Trigger};
 use crate::tmux::{self, TmuxStatus};
+use crate::update::{self, AppUpdate};
 use crate::{interactive, launchd, paths, runner, schedule, trust};
 use chrono::{Local, SecondsFormat};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
+use tauri::AppHandle;
 use ts_rs::TS;
 
 static WRITES: Mutex<()> = Mutex::new(());
@@ -210,6 +212,23 @@ pub fn tmux_status(path: String) -> TmuxStatus {
 #[tauri::command(async)]
 pub fn install_tmux(path: String) -> Reply<TmuxStatus> {
     Ok(tmux::install(&path)?)
+}
+
+/// The version this app was built as, from package.json.
+#[tauri::command]
+pub fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Reply<Option<AppUpdate>> {
+    Ok(update::check(&app).await?)
+}
+
+/// Installs the newest release and restarts the app on it; only returns when that failed.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Reply<()> {
+    Ok(update::install(&app).await?)
 }
 
 #[tauri::command(async)]
