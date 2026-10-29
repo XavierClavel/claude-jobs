@@ -16,7 +16,8 @@ tauri-build = { version = "2.6.3", features = [] }
 [dependencies]
 tauri = { version = "2.11.3", features = [] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `preserve_order`: adding a trusted folder to `~/.claude.json` leaves the rest of the file as Claude Code wrote it.
+serde_json = { version = "1.0", features = ["preserve_order"] }
 # The TypeScript types in `src/domain` are generated from these structs (`pnpm domain:build`).
 ts-rs = "12.0.1"
 # `clock` for the local time zone: a schedule's next run is a local wall-clock time.

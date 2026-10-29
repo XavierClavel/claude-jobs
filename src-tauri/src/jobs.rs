@@ -214,6 +214,12 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
         Some(d) if job.path.trim().is_empty() => d.path.clone(),
         _ => job.path.trim().to_string(),
     };
+    if job.interactive && crate::interactive::tmux_bin(&job.path).is_none() {
+        errors.push(
+            "Interactive session needs tmux, which is not installed: click Install tmux, or run brew install tmux."
+                .to_string(),
+        );
+    }
     if errors.is_empty() {
         Ok(job)
     } else {

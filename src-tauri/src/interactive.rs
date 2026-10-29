@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 /// A tmux server of its own, so job sessions never mix with the user's.
 pub const SOCKET: &str = "claude-jobs";
 
+/// What Claude Code shows when it does not trust the folder. It asks before starting work, and waits for an answer.
+const TRUST_QUESTION: &str = "Yes, I trust this folder";
+const TRUST_WINDOW: Duration = Duration::from_secs(120);
+
 pub fn session_name(job_id: &str) -> String {
     format!("cj-{job_id}")
 }
@@ -45,6 +49,7 @@ pub fn shell_quote(text: &str) -> String {
 
 pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
     let bin = tmux_bin(&job.path).ok_or("tmux is not installed (brew install tmux)")?;
+    crate::trust::ensure(&job.cwd)?;
     let dir = runs::dir(&job.id);
     let marker = dir.join(format!("{}.done", rec.id));
     let settings = dir.join(format!("{}.settings.json", rec.id));
@@ -92,7 +97,9 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
     rec.tmux_session = Some(session.clone());
     let _ = runs::save(rec);
 
-    let deadline = Instant::now() + Duration::from_secs(u64::from(job.timeout_minutes) * 60);
+    let opened = Instant::now();
+    let deadline = opened + Duration::from_secs(u64::from(job.timeout_minutes) * 60);
+    let mut asked_trust = false;
     let finished = loop {
         if let Some(stop) = read_marker(&marker) {
             break Some(stop);
@@ -103,9 +110,13 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
         if Instant::now() >= deadline {
             break None;
         }
+        if opened.elapsed() < TRUST_WINDOW && screen(&bin, &session).contains(TRUST_QUESTION) {
+            asked_trust = true;
+            break None;
+        }
         thread::sleep(Duration::from_secs(1));
     };
-    let timed_out = finished.is_none() && has_session(&bin, &session);
+    let timed_out = finished.is_none() && !asked_trust && has_session(&bin, &session);
     capture(&bin, &session, &out_path);
     close(&bin, &session);
 
@@ -120,6 +131,14 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
             }
             rec.status = RunStatus::Ok;
             crate::runner::apply_verdict(rec);
+        }
+        None if asked_trust => {
+            rec.status = RunStatus::Failed;
+            rec.error = Some(format!(
+                "Claude Code asked whether it trusts {} and nobody can answer in a scheduled run. Run claude in that \
+                 folder once and accept, then run the job again.",
+                job.cwd
+            ));
         }
         None if timed_out => {
             rec.status = RunStatus::Timeout;
@@ -141,6 +160,13 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
 fn read_marker(path: &Path) -> Option<serde_json::Value> {
     // The hook may still be writing: only a complete JSON document counts.
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+/// What the pane shows right now.
+fn screen(bin: &Path, session: &str) -> String {
+    tmux(bin, &["capture-pane", "-p", "-t", session])
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
 }
 
 /// What the pane shows, scrollback included: the record of the run when something went wrong.

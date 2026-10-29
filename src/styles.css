@@ -224,6 +224,21 @@ button:disabled {
   border-radius: 10px;
 }
 
+.tmux {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.tmux .muted {
+  flex: 1 1 200px;
+}
+
 .banner {
   padding: 0 max(16px, 4vw);
   white-space: pre-line;

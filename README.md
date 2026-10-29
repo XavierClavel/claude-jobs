@@ -19,6 +19,16 @@ Every job makes up for that: while one is enabled, a login agent (`com.claude-jo
 since, as long as that time is less than a day old. It waits up to 5 minutes for the network first. Catch-up runs show
 as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
 
+A run that fails or times out puts up an alert that stays on screen until you close it, with its error and an **Open
+Claude Jobs** button.
+
+## Requirements
+
+- Claude Code, signed in (run `claude` once).
+- tmux for interactive jobs. When it is missing, ticking **Interactive session** in the editor offers to install it
+  with Homebrew (`brew install tmux`, in the background; what Homebrew printed is in `logs/tmux-install.log`).
+- The gcloud CLI for jobs that read Google Cloud.
+
 ## Files
 
 Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_jobs.py` page:
@@ -54,7 +64,14 @@ session instead, in its own tmux server (`tmux -L claude-jobs`, so it never mixe
 with `--settings` tells the runner when Claude has finished; the runner then sends `/exit` and reads the result,
 turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session, or brings forward the Terminal tab already showing it (macOS
 asks once to let Claude Jobs control Terminal; without that, it opens a new window). Needs
-`brew install tmux`.
+tmux: the editor installs it with Homebrew when it is missing, and refuses an interactive job without it.
+
+In a folder it does not trust yet, Claude Code opens on "Is this a project you trust?" and waits for an answer. Saving
+an interactive job, and starting its runs, records the working folder as trusted the way Claude Code describes:
+`projects[<folder>].hasTrustDialogAccepted` in `~/.claude.json`, written under Claude Code's own lock
+(`~/.claude.json.lock`). Claude Code never keeps that answer for the home folder, and the app does not write it either
+(it would trust every folder in it): an interactive job needs a folder of its own. Should the question still show, the
+run stops at once instead of waiting for its timeout.
 
 ## Google Cloud
 

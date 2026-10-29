@@ -7,6 +7,7 @@ use chrono::{DateTime, Local, SecondsFormat, Utc};
 use std::fs::File;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -105,12 +106,12 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
             rec.error = Some(e);
         }
     }
-    if rec.status != RunStatus::Ok {
-        let last_line = rec.error.as_deref().and_then(|e| e.lines().last()).unwrap_or("The run did not finish.");
-        notify(&format!("Claude job failed: {}", job.name), last_line);
-    }
     let _ = runs::save(&rec);
     runs::prune(job_id);
+    if rec.status != RunStatus::Ok {
+        let last_line = rec.error.as_deref().and_then(|e| e.lines().last()).unwrap_or("The run did not finish.");
+        alert(&format!("Claude job failed: {}", job.name), last_line);
+    }
     if rec.status == RunStatus::Ok {
         0
     } else {
@@ -285,16 +286,34 @@ fn wait(child: &mut Child, limit: Duration) -> (i32, bool) {
     (code, true)
 }
 
-/// An AppleScript string literal: quotes and backslashes escaped, control characters dropped.
-fn applescript_string(text: &str) -> String {
-    let clean: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(200).collect();
-    format!("\"{}\"", clean.replace('\\', "\\\\").replace('"', "\\\""))
+/// Stays on screen until closed. A notification would not: macOS drops `display notification` from osascript unless
+/// Script Editor was once allowed to notify, and a banner shown at login is easy to miss.
+fn alert(title: &str, message: &str) {
+    const SCRIPT: &str = r#"on run argv
+    set {heading, body, appPath} to argv
+    activate
+    if appPath is "" then
+        display alert heading message body as critical
+        return
+    end if
+    set choice to button returned of (display alert heading message body as critical ¬
+        buttons {"Close", "Open Claude Jobs"} default button "Open Claude Jobs")
+    if choice is "Open Claude Jobs" then do shell script "/usr/bin/open " & quoted form of appPath
+end run"#;
+    let exe = std::env::current_exe().unwrap_or_default();
+    let app = app_bundle(&exe).map(|p| p.display().to_string()).unwrap_or_default();
+    let message: String = message.chars().take(500).collect();
+    // Not waited on, and in its own process group so it stays up after the run exits and launchd clears the job.
+    let _ = Command::new("/usr/bin/osascript")
+        .args(["-e", SCRIPT, title, &message, &app])
+        .stdin(Stdio::null())
+        .process_group(0)
+        .spawn();
 }
 
-fn notify(title: &str, message: &str) {
-    let script =
-        format!("display notification {} with title {}", applescript_string(message), applescript_string(title));
-    let _ = Command::new("osascript").args(["-e", &script]).output();
+/// The `.app` the binary is in; none for a dev build in `target/debug`.
+fn app_bundle(exe: &Path) -> Option<&Path> {
+    exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app"))
 }
 
 #[cfg(test)]
@@ -330,7 +349,9 @@ mod tests {
     }
 
     #[test]
-    fn notification_text_is_escaped() {
-        assert_eq!(applescript_string("a \"b\" \\ c\nd"), "\"a \\\"b\\\" \\\\ c d\"");
+    fn the_alert_opens_the_app_the_run_came_from() {
+        let exe = Path::new("/Users/x/Applications/Claude Jobs.app/Contents/MacOS/claude-jobs");
+        assert_eq!(app_bundle(exe), Some(Path::new("/Users/x/Applications/Claude Jobs.app")));
+        assert_eq!(app_bundle(Path::new("/Users/x/claude-jobs/src-tauri/target/debug/claude-jobs")), None);
     }
 }
