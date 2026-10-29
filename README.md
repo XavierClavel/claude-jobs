@@ -41,6 +41,20 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 On start, the app points every enabled job's launchd file at its own binary, so moving or updating the app keeps the
 schedules working.
 
+## Command line
+
+Other apps drive Claude Jobs through its binary, `Claude Jobs.app/Contents/MacOS/claude-jobs`. Dooock's Claude Jobs
+widget uses `status` and `watch`:
+
+- `claude-jobs status` prints every job as JSON, with `next_run`, `previous_run` (its last scheduled time, to tell
+  whether it is due today) and its last 10 runs in `recent`, newest first.
+  `version` changes only when a field goes away or changes meaning.
+- `claude-jobs start <job>` starts a run now, like **Run now**.
+- `claude-jobs watch <job>` opens Terminal on a running interactive job, like **Watch**.
+
+Errors go to stderr, with exit code 1. These commands came in version 0.2.0: an older binary opens its window
+instead, so check `CFBundleShortVersionString` before calling one.
+
 ## Stack
 
 Tauri 2 (Rust) with React 19, TypeScript and Vite; pnpm, Biome, Vitest and Testing Library. The TypeScript types in
