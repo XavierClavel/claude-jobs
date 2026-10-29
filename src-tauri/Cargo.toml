@@ -25,6 +25,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 plist = "1"
 # `kill(pid, 0)` and `killpg`: whether a run is still alive, and stopping a timed-out one with everything it started.
 libc = "0.2"
+# New versions from the GitHub releases: reads `latest.json`, checks the signature, swaps the app bundle in place.
+tauri-plugin-updater = "2.14.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -68,6 +68,13 @@ h3 {
   font-weight: 800;
 }
 
+.version {
+  margin-left: 4px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
 .jobs {
   display: grid;
   gap: 14px;
@@ -205,7 +212,8 @@ button:disabled {
   padding-left: 18px;
 }
 
-.gcloud {
+.gcloud,
+.update {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -214,11 +222,13 @@ button:disabled {
   font-size: 13px;
 }
 
-.gcloud .muted {
+.gcloud .muted,
+.update .muted {
   flex: 1 1 200px;
 }
 
-.gcloud-out {
+.gcloud-out,
+.update {
   padding: 10px 12px;
   border: 1px solid var(--warn);
   border-radius: 10px;
@@ -237,6 +247,10 @@ button:disabled {
 
 .tmux .muted {
   flex: 1 1 200px;
+}
+
+.update {
+  border-color: var(--running);
 }
 
 .banner {

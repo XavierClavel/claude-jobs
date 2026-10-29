@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "domain:build": "cargo test --quiet --manifest-path src-tauri/Cargo.toml export_bindings && biome format --write src/domain",
-    "app:build": "tauri build --bundles app"
+    "app:build": "tauri build --bundles app",
+    "release": "node scripts/release.ts"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
