@@ -7,9 +7,18 @@ export type Job = {
   hour: number
   minute: number
   /**
-   * ISO weekdays, 1 = Monday to 7 = Sunday. Empty means every day.
+   * ISO weekdays, 1 = Monday to 7 = Sunday. Empty means every day, unless `month_days` is set.
    */
   weekdays: Array<number>
+  /**
+   * Days of the month, 1 to 31, for a job that runs monthly. A month without one of them skips it, unless
+   * `last_day_fallback` is set.
+   */
+  month_days: Array<number>
+  /**
+   * A month shorter than one of `month_days` runs on its last day instead: a job on the 31st runs on 30 April.
+   */
+  last_day_fallback: boolean
   cwd: string
   allowed_tools: Array<string>
   model: string
@@ -21,8 +30,4 @@ export type Job = {
    * Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
    */
   interactive: boolean
-  /**
-   * Run at the next login when the Mac was off at the scheduled time, if that was less than a day ago.
-   */
-  catch_up: boolean
 }

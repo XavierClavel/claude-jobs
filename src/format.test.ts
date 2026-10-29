@@ -1,14 +1,57 @@
-import { ago, cost, duration, scheduleText, slug } from './format'
+import { ago, cost, duration, ordinal, scheduleText, slug } from './format'
 
 describe('scheduleText', () => {
   it('says every day when no day is picked', () => {
-    expect(scheduleText({ hour: 9, minute: 5, weekdays: [] })).toBe('Every day at 09:05')
+    expect(
+      scheduleText({ hour: 9, minute: 5, weekdays: [], month_days: [], last_day_fallback: false }),
+    ).toBe('Every day at 09:05')
   })
 
   it('lists the picked days', () => {
-    expect(scheduleText({ hour: 18, minute: 30, weekdays: [1, 5, 7] })).toBe(
-      'Mon, Fri, Sun at 18:30',
-    )
+    expect(
+      scheduleText({
+        hour: 18,
+        minute: 30,
+        weekdays: [1, 5, 7],
+        month_days: [],
+        last_day_fallback: false,
+      }),
+    ).toBe('Mon, Fri, Sun at 18:30')
+  })
+
+  it('lists the days of the month of a monthly job', () => {
+    expect(
+      scheduleText({
+        hour: 8,
+        minute: 0,
+        weekdays: [],
+        month_days: [1, 15],
+        last_day_fallback: false,
+      }),
+    ).toBe('Monthly on the 1st, 15th at 08:00')
+  })
+
+  it('says when a shorter month runs on its last day', () => {
+    expect(
+      scheduleText({ hour: 8, minute: 0, weekdays: [], month_days: [31], last_day_fallback: true }),
+    ).toBe('Monthly on the 31st at 08:00, or the last day of shorter months')
+  })
+
+  it('writes days of the month as ordinals', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 30, 31].map(ordinal)).toEqual([
+      '1st',
+      '2nd',
+      '3rd',
+      '4th',
+      '11th',
+      '12th',
+      '13th',
+      '21st',
+      '22nd',
+      '23rd',
+      '30th',
+      '31st',
+    ])
   })
 })
 

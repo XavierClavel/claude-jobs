@@ -2,8 +2,9 @@
 
 A macOS app that runs Claude Code prompts on a schedule, headless, and shows how each run went.
 
-Each job is a prompt (such as `/photobook-monitor`), a time and days, and the tools it may use without asking. The app
-turns it into a launchd agent that calls the app's own binary at that time:
+Each job is a prompt (such as `/photobook-monitor`), a time, when it repeats (every day, on days of the week, or on days
+of the month), and the tools it may use without asking. The app turns it into a launchd agent that calls the app's own
+binary at that time:
 
 ```
 ~/Library/LaunchAgents/com.claude-jobs.<job>.plist  →  Claude Jobs.app/Contents/MacOS/claude-jobs run <job>
@@ -13,11 +14,10 @@ turns it into a launchd agent that calls the app's own binary at that time:
 Runs happen whether the app is open or not. launchd runs a missed time when the Mac wakes; it does not run while the
 Mac is off or you are logged out.
 
-A job with **Catch up a missed run** makes up for that: while one is enabled, a login agent
-(`com.claude-jobs.app.catch-up`, calling `claude-jobs catch-up`) checks each such job at login and starts it when its
-last scheduled time has passed with no run since, as long as that time is less than a day old. It waits up to 5 minutes
-for the network first. Loading the agent also runs it, so ticking the box after a missed time catches it up at once.
-Catch-up runs show as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
+Every job makes up for that: while one is enabled, a login agent (`com.claude-jobs.app.catch-up`, calling
+`claude-jobs catch-up`) checks each job at login and starts it when its last scheduled time has passed with no run
+since, as long as that time is less than a day old. It waits up to 5 minutes for the network first. Catch-up runs show
+as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
 
 ## Files
 
@@ -66,6 +66,10 @@ That refreshes the application default credentials too.
 
 ## Limits
 
+- A monthly job on the 29th, 30th or 31st skips the months without that day, as launchd does: a job on the 31st does
+  not run in April. With **Run on the last day of shorter months** it runs on 30 April instead, and on 28 February (29
+  in a leap year). launchd has no year, so such a job is also started on 28 February of leap years; the runner sees
+  that the latest scheduled time already ran and stops there.
 - An interactive job waits on any permission prompt until its timeout: allow every tool it needs (your default
   permission mode still applies to the rest).
 - A job runs with the PATH set in its advanced settings, not your shell's: add the folders of every command it needs.
