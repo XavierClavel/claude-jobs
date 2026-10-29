@@ -60,6 +60,15 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
         eprintln!("{job_id} is already running");
         return 3;
     }
+    if trigger == Trigger::Schedule && job.last_day_fallback {
+        let last = runs::list(job_id, 1).into_iter().next();
+        let last_started = last.and_then(|r| DateTime::parse_from_rfc3339(&r.started_at).ok());
+        // 28 February of a leap year, which launchd cannot tell apart from the last day of other Februaries.
+        if schedule::already_ran(&job, Local::now(), last_started) {
+            eprintln!("{job_id}: its last scheduled time has already run");
+            return 0;
+        }
+    }
     let started = Utc::now();
     let mut rec = RunRecord {
         id: started.format("%Y%m%dT%H%M%SZ").to_string(),

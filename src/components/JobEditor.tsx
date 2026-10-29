@@ -3,9 +3,23 @@ import { api, errorsOf } from '../api'
 import type { Defaults } from '../domain/Defaults'
 import type { JobView } from '../domain/JobView'
 import type { TmuxStatus } from '../domain/TmuxStatus'
-import { type Draft, toDraft, toJob } from '../editor'
-import { DAYS, slug } from '../format'
+import {
+  type Draft,
+  draftErrors,
+  hasShortMonths,
+  type Repeat,
+  toDraft,
+  toJob,
+  withRepeat,
+} from '../editor'
+import { DAYS, MONTH_DAYS, scheduleText, slug } from '../format'
 import { TmuxNotice } from './TmuxNotice'
+
+const REPEATS: [Repeat, string][] = [
+  ['daily', 'Daily'],
+  ['weekly', 'Weekly'],
+  ['monthly', 'Monthly'],
+]
 
 export function JobEditor({
   job,
@@ -48,6 +62,11 @@ export function JobEditor({
 
   async function save(event: FormEvent) {
     event.preventDefault()
+    const missing = draftErrors(draft)
+    if (missing.length) {
+      setErrors(missing)
+      return
+    }
     setSaving(true)
     try {
       await api.saveJob(toJob(draft), job?.id ?? null)
@@ -73,13 +92,9 @@ export function JobEditor({
     }
   }
 
-  function toggleDay(day: number) {
-    set(
-      'weekdays',
-      draft.weekdays.includes(day)
-        ? draft.weekdays.filter((d) => d !== day)
-        : [...draft.weekdays, day],
-    )
+  function toggleDay(key: 'weekdays' | 'monthDays', day: number) {
+    const days = draft[key]
+    set(key, days.includes(day) ? days.filter((d) => d !== day) : [...days, day])
   }
 
   return (
@@ -121,40 +136,89 @@ export function JobEditor({
           onChange={(e) => set('prompt', e.target.value)}
         />
       </label>
-      <div className="row">
-        <label>
-          Time
-          <input
-            type="time"
-            value={draft.time}
-            required
-            onChange={(e) => set('time', e.target.value)}
-          />
-        </label>
-        <label>
-          Timeout (minutes)
-          <input
-            type="number"
-            min={1}
-            max={240}
-            value={draft.timeout}
-            onChange={(e) => set('timeout', e.target.value)}
-          />
-        </label>
-      </div>
-      <fieldset className="days">
-        <legend className="muted">Days (none checked = every day)</legend>
-        {DAYS.map((name, i) => (
-          <label key={name} className="day">
+      <fieldset className="schedule">
+        <legend>Schedule</legend>
+        <div className="segmented" role="radiogroup" aria-label="Repeat">
+          {REPEATS.map(([value, name]) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="repeat"
+                checked={draft.repeat === value}
+                onChange={() => setDraft((d) => withRepeat(d, value))}
+              />
+              {name}
+            </label>
+          ))}
+        </div>
+        {draft.repeat === 'weekly' && (
+          <fieldset className="toggles" aria-label="Days of the week">
+            {DAYS.map((name, i) => (
+              <label key={name} className="toggle">
+                <input
+                  type="checkbox"
+                  checked={draft.weekdays.includes(i + 1)}
+                  onChange={() => toggleDay('weekdays', i + 1)}
+                />
+                {name}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {draft.repeat === 'monthly' && (
+          <fieldset className="toggles month-days" aria-label="Days of the month">
+            {MONTH_DAYS.map((day) => (
+              <label key={day} className="toggle">
+                <input
+                  type="checkbox"
+                  checked={draft.monthDays.includes(day)}
+                  onChange={() => toggleDay('monthDays', day)}
+                />
+                {day}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <div className="schedule-time">
+          <label>
+            Time
             <input
-              type="checkbox"
-              checked={draft.weekdays.includes(i + 1)}
-              onChange={() => toggleDay(i + 1)}
+              type="time"
+              value={draft.time}
+              required
+              onChange={(e) => set('time', e.target.value)}
             />
-            {name}
           </label>
-        ))}
+          <p className="muted">{draftErrors(draft)[0] ?? scheduleText(toJob(draft))}</p>
+        </div>
+        {draft.repeat === 'monthly' && hasShortMonths(draft.monthDays) && (
+          <>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={draft.lastDay}
+                onChange={(e) => set('lastDay', e.target.checked)}
+              />
+              Run on the last day of shorter months
+            </label>
+            <p className="muted hint">
+              {draft.lastDay
+                ? 'A job on the 31st runs on 30 April, and on 28 February (29 in a leap year).'
+                : 'Otherwise a month without one of these days skips it: a job on the 31st does not run in April.'}
+            </p>
+          </>
+        )}
       </fieldset>
+      <label className="narrow">
+        Timeout (minutes)
+        <input
+          type="number"
+          min={1}
+          max={240}
+          value={draft.timeout}
+          onChange={(e) => set('timeout', e.target.value)}
+        />
+      </label>
       <label>
         Allowed tools, one per line
         <textarea
@@ -214,19 +278,6 @@ export function JobEditor({
       {draft.interactive && (
         <TmuxNotice status={tmux} installing={installing} onInstall={installTmux} />
       )}
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={draft.catchUp}
-          onChange={(e) => set('catchUp', e.target.checked)}
-        />
-        Catch up a missed run
-      </label>
-      <p className="muted hint">
-        If the Mac was off at the scheduled time, runs at the next login, as long as that is less
-        than a day late. A Mac that was asleep needs no catch-up: launchd runs the job when it
-        wakes.
-      </p>
       <label className="check">
         <input
           type="checkbox"

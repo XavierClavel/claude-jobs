@@ -4,6 +4,23 @@ import type { Trigger } from './domain/Trigger'
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
+export const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
+
+const SUFFIX: Record<number, string> = {
+  1: 'st',
+  2: 'nd',
+  3: 'rd',
+  21: 'st',
+  22: 'nd',
+  23: 'rd',
+  31: 'st',
+}
+
+// For a day of the month, 1 to 31.
+export function ordinal(day: number): string {
+  return `${day}${SUFFIX[day] ?? 'th'}`
+}
+
 export const STATUS_LABEL: Record<RunStatus, string> = {
   running: 'Running',
   ok: 'OK',
@@ -24,8 +41,14 @@ export function clock(hour: number, minute: number): string {
   return `${pad(hour)}:${pad(minute)}`
 }
 
-export function scheduleText(job: Pick<Job, 'hour' | 'minute' | 'weekdays'>): string {
+export function scheduleText(
+  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days' | 'last_day_fallback'>,
+): string {
   const time = clock(job.hour, job.minute)
+  if (job.month_days.length) {
+    const shorter = job.last_day_fallback ? ', or the last day of shorter months' : ''
+    return `Monthly on the ${job.month_days.map(ordinal).join(', ')} at ${time}${shorter}`
+  }
   if (!job.weekdays.length) return `Every day at ${time}`
   return `${job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')} at ${time}`
 }

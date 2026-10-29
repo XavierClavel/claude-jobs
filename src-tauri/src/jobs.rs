@@ -17,9 +17,16 @@ pub struct Job {
     pub prompt: String,
     pub hour: u8,
     pub minute: u8,
-    /// ISO weekdays, 1 = Monday to 7 = Sunday. Empty means every day.
+    /// ISO weekdays, 1 = Monday to 7 = Sunday. Empty means every day, unless `month_days` is set.
     #[serde(default)]
     pub weekdays: Vec<u8>,
+    /// Days of the month, 1 to 31, for a job that runs monthly. A month without one of them skips it, unless
+    /// `last_day_fallback` is set.
+    #[serde(default)]
+    pub month_days: Vec<u8>,
+    /// A month shorter than one of `month_days` runs on its last day instead: a job on the 31st runs on 30 April.
+    #[serde(default)]
+    pub last_day_fallback: bool,
     #[serde(default)]
     pub cwd: String,
     #[serde(default)]
@@ -37,9 +44,6 @@ pub struct Job {
     /// Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
     #[serde(default)]
     pub interactive: bool,
-    /// Run at the next login when the Mac was off at the scheduled time, if that was less than a day ago.
-    #[serde(default)]
-    pub catch_up: bool,
 }
 
 fn default_timeout() -> u32 {
@@ -179,6 +183,16 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
     if job.weekdays.iter().any(|d| !(1..=7).contains(d)) {
         errors.push("Days must be 1 (Monday) to 7 (Sunday).".to_string());
     }
+    job.month_days.sort_unstable();
+    job.month_days.dedup();
+    if job.month_days.iter().any(|d| !(1..=31).contains(d)) {
+        errors.push("Days of the month must be 1 to 31.".to_string());
+    }
+    if !job.weekdays.is_empty() && !job.month_days.is_empty() {
+        errors.push("A job runs on days of the week or days of the month, not both.".to_string());
+    }
+    // Only a day after the 28th can be missing from a month.
+    job.last_day_fallback &= job.month_days.iter().any(|&d| d > 28);
     if !(1..=240).contains(&job.timeout_minutes) {
         errors.push("Timeout must be 1 to 240 minutes.".to_string());
     }
@@ -225,6 +239,8 @@ mod tests {
             hour: 9,
             minute: 0,
             weekdays: vec![],
+            month_days: vec![],
+            last_day_fallback: false,
             cwd: "/tmp".into(),
             allowed_tools: vec![" Read ".into(), "".into()],
             model: "".into(),
@@ -233,7 +249,6 @@ mod tests {
             claude: "/bin/sh".into(),
             path: "/usr/bin:/bin".into(),
             interactive: false,
-            catch_up: false,
         }
     }
 
@@ -265,6 +280,24 @@ mod tests {
         assert!(errors.iter().any(|e| e.contains("already exists")));
         assert!(errors.iter().any(|e| e.contains("Time")));
         assert!(errors.iter().any(|e| e.contains("Days")));
+    }
+
+    #[test]
+    fn validate_sorts_month_days_and_refuses_them_with_weekdays() {
+        let mut input = job("monthly");
+        input.month_days = vec![15, 1, 15];
+        input.last_day_fallback = true;
+        let out = validate(input.clone(), &[], None).expect("valid");
+        assert_eq!(out.month_days, vec![1, 15]);
+        // Every month has a 1st and a 15th: there is nothing to fall back from.
+        assert!(!out.last_day_fallback);
+        let month_end = Job { month_days: vec![31], ..input.clone() };
+        assert!(validate(month_end, &[], None).expect("valid").last_day_fallback);
+        input.month_days.push(32);
+        input.weekdays = vec![1];
+        let errors = validate(input, &[], None).unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("1 to 31")));
+        assert!(errors.iter().any(|e| e.contains("not both")));
     }
 
     #[test]
