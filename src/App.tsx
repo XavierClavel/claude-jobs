@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorsOf } from './api'
+import { ClaudeBar } from './components/ClaudeBar'
 import { Dialog } from './components/Dialog'
 import { GcloudBar } from './components/GcloudBar'
 import { History } from './components/History'
@@ -7,6 +8,7 @@ import { JobCard } from './components/JobCard'
 import { JobEditor } from './components/JobEditor'
 import { UpdateBar } from './components/UpdateBar'
 import type { AppUpdate } from './domain/AppUpdate'
+import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { JobView } from './domain/JobView'
@@ -21,6 +23,7 @@ export function App() {
   const [history, setHistory] = useState<JobView | null>(null)
   const [banner, setBanner] = useState<string[]>([])
   const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
+  const [claude, setClaude] = useState<ConditionStatus | null>(null)
   const [signingIn, setSigningIn] = useState(false)
   const [update, setUpdate] = useState<AppUpdate | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -39,16 +42,21 @@ export function App() {
     api.appVersion().then(setVersion, () => setVersion(null))
   }, [refresh])
 
-  // Faster while a run is going, so its end shows up without reloading.
-  const running = jobs?.some((j) => j.last_run?.status === 'running') ?? false
+  // Faster while a run is going or waiting to start, so its end or start shows up without reloading.
+  const busy = jobs?.some((j) => j.last_run?.status === 'running' || j.waiting !== null) ?? false
   useEffect(() => {
-    const timer = setInterval(refresh, running ? 4000 : 30000)
+    const timer = setInterval(refresh, busy ? 4000 : 30000)
     return () => clearInterval(timer)
-  }, [refresh, running])
+  }, [refresh, busy])
 
-  // Checked again when the window comes back, which is when a sign-in in Terminal has just finished.
+  // Checked again when the window comes back, which is when a sign-in in Terminal has just finished. The jobs follow:
+  // the conditions they show come from these checks.
   useEffect(() => {
-    const check = () => api.gcloudStatus().then(setGcloud, () => setGcloud(null))
+    const check = () =>
+      Promise.all([
+        api.gcloudStatus().then(setGcloud, () => setGcloud(null)),
+        api.claudeStatus().then(setClaude, () => setClaude(null)),
+      ]).then(refresh)
     check()
     const timer = setInterval(check, 300000)
     window.addEventListener('focus', check)
@@ -56,7 +64,7 @@ export function App() {
       clearInterval(timer)
       window.removeEventListener('focus', check)
     }
-  }, [])
+  }, [refresh])
 
   // The window may stay open for days. A failed check (offline, no release yet) keeps what the last one found.
   useEffect(() => {
@@ -100,6 +108,7 @@ export function App() {
             .finally(() => setInstalling(false))
         }}
       />
+      <ClaudeBar status={claude} onSignIn={() => act(api.claudeSignIn)} />
       <GcloudBar
         status={gcloud}
         signingIn={signingIn}
@@ -108,7 +117,10 @@ export function App() {
           api
             .gcloudSignIn()
             .then(setGcloud, (e) => setBanner(errorsOf(e)))
-            .finally(() => setSigningIn(false))
+            .finally(() => {
+              setSigningIn(false)
+              refresh()
+            })
         }}
       />
       {banner.length > 0 && (

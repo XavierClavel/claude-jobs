@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod commands;
+pub mod conditions;
 pub mod gcloud;
 pub mod interactive;
 pub mod jobs;
@@ -34,6 +35,8 @@ pub fn run() {
             commands::get_run,
             commands::gcloud_status,
             commands::gcloud_sign_in,
+            commands::claude_status,
+            commands::claude_sign_in,
             commands::tmux_status,
             commands::install_tmux,
             commands::app_version,

@@ -26,6 +26,10 @@ export function JobCard({
 }) {
   const last = job.last_run
   const running = last?.status === 'running'
+  const waiting = job.waiting
+  // A paused job does not start, so what it would wait for only matters once a run waits.
+  const unmet = waiting || job.enabled ? job.unmet_conditions : []
+  const problems = unmet.map((c) => c.problem).join(' ')
   const prompt = job.prompt.length > 140 ? `${job.prompt.slice(0, 140)}…` : job.prompt
   return (
     <section className="job" aria-label={job.name}>
@@ -39,6 +43,11 @@ export function JobCard({
           <Chip tone="warn">Not loaded in launchd</Chip>
         )}
         {last && <Chip tone={runTone(last.status)}>Last run: {STATUS_LABEL[last.status]}</Chip>}
+        {waiting ? (
+          <Chip tone="warn">Waiting to start</Chip>
+        ) : (
+          unmet.length > 0 && <Chip tone="warn">Conditions not met</Chip>
+        )}
         {job.interactive && <Chip tone="muted">Interactive</Chip>}
       </div>
       <div className="lines">
@@ -47,6 +56,16 @@ export function JobCard({
           {job.enabled && job.next_run ? ` · next ${dateTime(job.next_run)}` : ''}
         </div>
         <div className="muted mono">{prompt}</div>
+        {waiting ? (
+          <div className="problem">
+            Waiting since {dateTime(waiting.since)}
+            {problems ? `: ${problems}` : ' for its conditions.'} It starts as soon as they are met.
+          </div>
+        ) : (
+          unmet.length > 0 && (
+            <div className="problem">{problems} Its next run waits until then.</div>
+          )
+        )}
         <div className="muted">
           {!last
             ? 'Never run'
@@ -58,8 +77,8 @@ export function JobCard({
         </div>
       </div>
       <div className="actions">
-        <button type="button" onClick={onRun} disabled={running}>
-          {running ? 'Running…' : 'Run now'}
+        <button type="button" onClick={onRun} disabled={running || waiting !== null}>
+          {running ? 'Running…' : waiting ? 'Waiting…' : 'Run now'}
         </button>
         {running && job.interactive && (
           <button type="button" onClick={onWatch}>

@@ -52,6 +52,13 @@ describe('editor drafts', () => {
     expect(toJob({ ...draft, monthDays: [31], repeat: 'daily' }).last_day_fallback).toBe(false)
   })
 
+  it('keeps the conditions a job adds, none for a new one', () => {
+    expect(toDraft(null, defaults).conditions).toEqual([])
+    const job = toJob({ ...toDraft(null, defaults), conditions: ['gcloud'] })
+    expect(job.conditions).toEqual(['gcloud'])
+    expect(toDraft(job, defaults).conditions).toEqual(['gcloud'])
+  })
+
   it('opens a monthly job on its days of the month', () => {
     const job = toJob({ ...toDraft(null, defaults), repeat: 'monthly', monthDays: [1] })
     expect(toDraft(job, defaults)).toMatchObject({ repeat: 'monthly', monthDays: [1] })

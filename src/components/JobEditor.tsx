@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { api, errorsOf } from '../api'
+import type { Condition } from '../domain/Condition'
 import type { Defaults } from '../domain/Defaults'
 import type { JobView } from '../domain/JobView'
 import type { TmuxStatus } from '../domain/TmuxStatus'
@@ -90,6 +91,11 @@ export function JobEditor({
     } catch (e) {
       setErrors(errorsOf(e))
     }
+  }
+
+  function toggleCondition(condition: Condition, on: boolean) {
+    const rest = draft.conditions.filter((c) => c !== condition)
+    set('conditions', on ? [...rest, condition] : rest)
   }
 
   function toggleDay(key: 'weekdays' | 'monthDays', day: number) {
@@ -227,6 +233,26 @@ export function JobEditor({
           onChange={(e) => set('tools', e.target.value)}
         />
       </label>
+      <fieldset className="box">
+        <legend>Start only when</legend>
+        <label className="check">
+          <input type="checkbox" checked disabled />
+          Claude Code is signed in
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={draft.conditions.includes('gcloud')}
+            onChange={(e) => toggleCondition('gcloud', e.target.checked)}
+          />
+          Google Cloud is signed in
+        </label>
+        <p className="muted hint">
+          Every job needs Claude Code; tick Google Cloud for a job that reads BigQuery or Cloud
+          Logging. Until they are met, a run waits, checks again every 30 seconds, and starts as
+          soon as they are.
+        </p>
+      </fieldset>
       <details>
         <summary>Advanced</summary>
         <div className="dlg nested">

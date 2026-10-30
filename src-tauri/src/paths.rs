@@ -15,6 +15,11 @@ pub fn jobs_file() -> PathBuf {
     base().join("jobs.json")
 }
 
+/// The last check of each job condition: see `conditions`.
+pub fn conditions_file() -> PathBuf {
+    base().join("conditions.json")
+}
+
 pub fn runs_dir() -> PathBuf {
     base().join("runs")
 }

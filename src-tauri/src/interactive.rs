@@ -1,8 +1,10 @@
 //! An interactive run: a real Claude Code session in tmux, for tools a headless `claude -p` does not get (the
 //! Artifact tools). A Stop hook tells the runner when Claude has finished; the runner then closes the session and
-//! reads the result and cost from the session transcript.
+//! reads the result and cost from the session transcript. A StopFailure hook tells it when the turn ended on an API
+//! error instead, after which the session would only wait for someone to type.
 
 use crate::jobs::Job;
+use crate::runner::{self, Outcome};
 use crate::runs::{self, RunRecord, RunStatus};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +18,20 @@ pub const SOCKET: &str = "claude-jobs";
 /// What Claude Code shows when it does not trust the folder. It asks before starting work, and waits for an answer.
 const TRUST_QUESTION: &str = "Yes, I trust this folder";
 const TRUST_WINDOW: Duration = Duration::from_secs(120);
+/// What StopFailure reports when the API refused the login.
+const AUTH_FAILED: &str = "authentication_failed";
+
+/// Why the runner stopped watching the session.
+enum End {
+    /// The Stop hook's input: Claude finished its turn.
+    Stopped(serde_json::Value),
+    /// The StopFailure hook's input: the turn ended on an API error.
+    ApiError(serde_json::Value),
+    AskedTrust,
+    AskedLogin,
+    Closed,
+    TimedOut,
+}
 
 pub fn session_name(job_id: &str) -> String {
     format!("cj-{job_id}")
@@ -47,18 +63,18 @@ pub fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
+pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     let bin = tmux_bin(&job.path).ok_or("tmux is not installed (brew install tmux)")?;
     crate::trust::ensure(&job.cwd)?;
     let dir = runs::dir(&job.id);
     let marker = dir.join(format!("{}.done", rec.id));
+    let failure = dir.join(format!("{}.failed", rec.id));
     let settings = dir.join(format!("{}.settings.json", rec.id));
     let out_path = dir.join(format!("{}.out", rec.id));
-    // The Stop hook gets the session id and transcript path on stdin; keeping them is the "finished" signal.
-    let hook = serde_json::json!({
-        "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": format!("cat > {}", shell_quote(&marker.display().to_string())) } ] } ] }
-    });
-    fs::write(&settings, hook.to_string()).map_err(|e| e.to_string())?;
+    // The hooks get the session id and transcript path on stdin, and StopFailure the error; keeping them is the signal.
+    let keep = |path: &Path| serde_json::json!([ { "hooks": [ { "type": "command", "command": format!("cat > {}", shell_quote(&path.display().to_string())) } ] } ]);
+    let hooks = serde_json::json!({ "hooks": { "Stop": keep(&marker), "StopFailure": keep(&failure) } });
+    fs::write(&settings, hooks.to_string()).map_err(|e| e.to_string())?;
 
     let session = session_name(&job.id);
     // A session left over from a run that was cut short would block this one.
@@ -99,29 +115,35 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
 
     let opened = Instant::now();
     let deadline = opened + Duration::from_secs(u64::from(job.timeout_minutes) * 60);
-    let mut asked_trust = false;
-    let finished = loop {
+    let end = loop {
         if let Some(stop) = read_marker(&marker) {
-            break Some(stop);
+            break End::Stopped(stop);
+        }
+        if let Some(error) = read_marker(&failure) {
+            break End::ApiError(error);
         }
         if !has_session(&bin, &session) {
-            break None;
+            break End::Closed;
         }
         if Instant::now() >= deadline {
-            break None;
+            break End::TimedOut;
         }
-        if opened.elapsed() < TRUST_WINDOW && screen(&bin, &session).contains(TRUST_QUESTION) {
-            asked_trust = true;
-            break None;
+        if opened.elapsed() < TRUST_WINDOW {
+            let shown = screen(&bin, &session);
+            if shown.contains(TRUST_QUESTION) {
+                break End::AskedTrust;
+            }
+            if runner::is_login_error(&shown) {
+                break End::AskedLogin;
+            }
         }
         thread::sleep(Duration::from_secs(1));
     };
-    let timed_out = finished.is_none() && !asked_trust && has_session(&bin, &session);
     capture(&bin, &session, &out_path);
     close(&bin, &session);
 
-    match finished {
-        Some(stop) => {
+    match end {
+        End::Stopped(stop) => {
             rec.session_id = stop.get("session_id").and_then(|v| v.as_str()).map(str::to_string);
             if let Some(transcript) = stop.get("transcript_path").and_then(|v| v.as_str()) {
                 let summary = read_transcript(Path::new(transcript));
@@ -130,9 +152,18 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
                 rec.cost_usd = summary.cost_usd;
             }
             rec.status = RunStatus::Ok;
-            crate::runner::apply_verdict(rec);
+            runner::apply_verdict(rec);
         }
-        None if asked_trust => {
+        End::AskedLogin => return Ok(Outcome::LoginExpired),
+        End::ApiError(error) if error.get("error").and_then(|e| e.as_str()) == Some(AUTH_FAILED) => {
+            return Ok(Outcome::LoginExpired);
+        }
+        End::ApiError(error) => {
+            rec.session_id = error.get("session_id").and_then(|v| v.as_str()).map(str::to_string);
+            rec.status = RunStatus::Failed;
+            rec.error = Some(api_error(&error));
+        }
+        End::AskedTrust => {
             rec.status = RunStatus::Failed;
             rec.error = Some(format!(
                 "Claude Code asked whether it trusts {} and nobody can answer in a scheduled run. Run claude in that \
@@ -140,7 +171,7 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
                 job.cwd
             ));
         }
-        None if timed_out => {
+        End::TimedOut => {
             rec.status = RunStatus::Timeout;
             rec.error = Some(format!(
                 "stopped after {} minutes: Claude never finished, often a permission prompt for a tool that is not \
@@ -148,13 +179,23 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
                 job.timeout_minutes
             ));
         }
-        None => {
+        End::Closed => {
             rec.status = RunStatus::Failed;
             rec.error =
                 Some("the Claude session closed before finishing. Its last screen is in the run's output.".into());
         }
     }
-    Ok(())
+    Ok(Outcome::Finished)
+}
+
+/// "Claude stopped on an API error (rate_limit): …", from what the StopFailure hook got.
+fn api_error(error: &serde_json::Value) -> String {
+    let kind = error.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let details = error.get("error_details").and_then(|v| v.as_str()).map(str::trim).filter(|d| !d.is_empty());
+    match details {
+        Some(details) => format!("Claude stopped on an API error ({kind}): {details}"),
+        None => format!("Claude stopped on an API error ({kind}). Its last screen is in the run's output."),
+    }
 }
 
 fn read_marker(path: &Path) -> Option<serde_json::Value> {
@@ -241,6 +282,14 @@ mod tests {
     #[test]
     fn shell_quote_survives_quotes_and_spaces() {
         assert_eq!(shell_quote("/a b/it's.done"), r"'/a b/it'\''s.done'");
+    }
+
+    #[test]
+    fn an_api_error_says_what_kind() {
+        let error = serde_json::json!({"hook_event_name": "StopFailure", "error": "rate_limit",
+            "error_details": "Usage limit reached until 14:00"});
+        assert_eq!(api_error(&error), "Claude stopped on an API error (rate_limit): Usage limit reached until 14:00");
+        assert!(api_error(&serde_json::json!({})).starts_with("Claude stopped on an API error (unknown)."));
     }
 
     #[test]

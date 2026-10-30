@@ -8,6 +8,8 @@ use ts_rs::TS;
 
 pub const KEEP_RUNS: usize = 100;
 const DETAIL_TAIL: usize = 200_000;
+/// The files of a run beside `<run>.json`; `done` and `failed` are what the Stop hooks of an interactive run write.
+const RUN_FILES: [&str; 6] = ["json", "out", "err", "done", "failed", "settings.json"];
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -66,6 +68,16 @@ pub struct RunRecord {
     /// The tmux session of an interactive run, which the app can open to watch it.
     #[serde(default)]
     pub tmux_session: Option<String>,
+}
+
+/// A run waiting for its job's conditions, kept in `runs/<job>/waiting.json` while its runner is alive. It is not in
+/// the history: the run is recorded once it starts.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[ts(export)]
+pub struct Waiting {
+    pub since: String,
+    pub trigger: Trigger,
+    pub pid: u32,
 }
 
 #[derive(Serialize, TS, Clone, Debug)]
@@ -146,10 +158,37 @@ pub fn save(rec: &RunRecord) -> Result<(), String> {
 
 pub fn prune(job_id: &str) {
     for old in run_files(job_id).into_iter().skip(KEEP_RUNS) {
-        for ext in ["json", "out", "err", "done", "settings.json"] {
+        for ext in RUN_FILES {
             let _ = fs::remove_file(old.with_extension(ext));
         }
     }
+}
+
+/// Forgets a run that never got going, such as one Claude Code turned away for an expired login.
+pub fn remove(job_id: &str, run_id: &str) {
+    for ext in RUN_FILES {
+        let _ = fs::remove_file(dir(job_id).join(format!("{run_id}.{ext}")));
+    }
+}
+
+fn waiting_file(job_id: &str) -> PathBuf {
+    dir(job_id).join("waiting.json")
+}
+
+/// The run waiting for this job's conditions, if its runner is still alive.
+pub fn waiting(job_id: &str) -> Option<Waiting> {
+    let text = fs::read_to_string(waiting_file(job_id)).ok()?;
+    serde_json::from_str::<Waiting>(&text).ok().filter(|w| pid_alive(w.pid))
+}
+
+pub fn save_waiting(job_id: &str, waiting: &Waiting) -> Result<(), String> {
+    fs::create_dir_all(dir(job_id)).map_err(|e| e.to_string())?;
+    let text = serde_json::to_string_pretty(waiting).map_err(|e| e.to_string())?;
+    fs::write(waiting_file(job_id), text).map_err(|e| e.to_string())
+}
+
+pub fn clear_waiting(job_id: &str) {
+    let _ = fs::remove_file(waiting_file(job_id));
 }
 
 fn tail(text: String) -> String {

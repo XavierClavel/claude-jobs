@@ -21,10 +21,13 @@ function job(overrides: Partial<JobView> = {}): JobView {
     claude: '/bin/claude',
     path: '/usr/bin',
     interactive: false,
+    conditions: [],
     label: 'com.claude-jobs.photobook-monitor',
     loaded: true,
     next_run: '2026-10-27T09:00:00+01:00',
     last_run: null,
+    waiting: null,
+    unmet_conditions: [],
     ...overrides,
   }
 }
@@ -135,6 +138,62 @@ describe('JobCard', () => {
       />,
     )
     expect(screen.getByText(/caught up at login/)).toBeInTheDocument()
+  })
+})
+
+describe('JobCard conditions', () => {
+  const expired = {
+    condition: 'claude' as const,
+    problem: "Claude Code's login expired: run claude, then /login.",
+  }
+
+  it('warns that the next run will wait for its conditions', () => {
+    render(
+      <JobCard
+        job={job({ unmet_conditions: [expired] })}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={noop}
+      />,
+    )
+    expect(screen.getByText('Conditions not met')).toBeInTheDocument()
+    expect(screen.getByText(/login expired.*Its next run waits until then/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled()
+  })
+
+  it('says nothing of them on a paused job', () => {
+    render(
+      <JobCard
+        job={job({ enabled: false, unmet_conditions: [expired] })}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={noop}
+      />,
+    )
+    expect(screen.queryByText('Conditions not met')).not.toBeInTheDocument()
+  })
+
+  it('shows a run waiting to start, which cannot be started twice', () => {
+    render(
+      <JobCard
+        job={job({
+          unmet_conditions: [expired],
+          waiting: { since: '2026-10-30T08:07:24Z', trigger: 'schedule', pid: 1 },
+        })}
+        onRun={noop}
+        onToggle={noop}
+        onEdit={noop}
+        onHistory={noop}
+        onWatch={noop}
+      />,
+    )
+    expect(screen.getByText('Waiting to start')).toBeInTheDocument()
+    expect(screen.getByText(/Waiting since .*login expired.*starts as soon/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Waiting…' })).toBeDisabled()
   })
 })
 

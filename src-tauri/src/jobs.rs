@@ -1,5 +1,6 @@
 //! Jobs: a prompt, when to run it and how. Stored in `~/.claude-jobs/jobs.json`.
 
+use crate::conditions::Condition;
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
@@ -44,6 +45,9 @@ pub struct Job {
     /// Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
     #[serde(default)]
     pub interactive: bool,
+    /// What the job needs before it starts besides Claude Code signed in, which every job needs: see `conditions`.
+    #[serde(default)]
+    pub conditions: Vec<Condition>,
 }
 
 fn default_timeout() -> u32 {
@@ -191,6 +195,10 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
     if !job.weekdays.is_empty() && !job.month_days.is_empty() {
         errors.push("A job runs on days of the week or days of the month, not both.".to_string());
     }
+    // Every job needs Claude Code: the list keeps only what a job asks for on top.
+    job.conditions.retain(|c| *c != Condition::Claude);
+    job.conditions.sort_unstable();
+    job.conditions.dedup();
     // Only a day after the 28th can be missing from a month.
     job.last_day_fallback &= job.month_days.iter().any(|&d| d > 28);
     if !(1..=240).contains(&job.timeout_minutes) {
@@ -249,6 +257,7 @@ mod tests {
             claude: "/bin/sh".into(),
             path: "/usr/bin:/bin".into(),
             interactive: false,
+            conditions: vec![],
         }
     }
 
@@ -298,6 +307,13 @@ mod tests {
         let errors = validate(input, &[], None).unwrap_err();
         assert!(errors.iter().any(|e| e.contains("1 to 31")));
         assert!(errors.iter().any(|e| e.contains("not both")));
+    }
+
+    #[test]
+    fn validate_keeps_only_the_conditions_a_job_adds() {
+        let mut input = job("gcloud");
+        input.conditions = vec![Condition::Gcloud, Condition::Claude, Condition::Gcloud];
+        assert_eq!(validate(input, &[], None).expect("valid").conditions, vec![Condition::Gcloud]);
     }
 
     #[test]
