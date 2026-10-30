@@ -93,8 +93,8 @@ schedules working.
 
 ## Command line
 
-Other apps drive Claude Jobs through its binary, `Claude Jobs.app/Contents/MacOS/claude-jobs`. Dooock's Claude Jobs
-widget uses `status` and `watch`:
+Other apps and agents drive Claude Jobs through its binary, `Claude Jobs.app/Contents/MacOS/claude-jobs`. Dooock's
+Claude Jobs widget uses `status` and `watch`:
 
 - `claude-jobs status` prints every job as JSON, with `next_run`, `previous_run` (its last scheduled time, to tell
   whether it is due today), its last 10 runs in `recent`, newest first, the conditions it needs that are not met in
@@ -102,9 +102,20 @@ widget uses `status` and `watch`:
   `version` changes only when a field goes away or changes meaning.
 - `claude-jobs start <job>` starts a run now, like **Run now**.
 - `claude-jobs watch <job>` opens Terminal on a running interactive job, like **Watch**.
+- `claude-jobs save` creates or changes a job from JSON on stdin, like **Save** in the editor, and prints it the way
+  `status` lists it. The fields are a job's in `jobs.json`. A new job needs `id`, `name`, `prompt`, `hour` and `minute`;
+  the others get the editor's defaults, such as the working folder `~/.claude-jobs/workspace`. For an existing `id`,
+  the fields given replace the job's and the others stay. A field it does not know is refused, not dropped.
 
-Errors go to stderr, with exit code 1. These commands came in version 0.2.0: an older binary opens its window
-instead, so check `CFBundleShortVersionString` before calling one.
+  ```sh
+  claude-jobs save <<'EOF'
+  {"id": "weekly-report", "name": "Weekly report", "prompt": "/weekly-report", "hour": 8, "minute": 30,
+   "weekdays": [1], "allowed_tools": ["Read", "Skill"]}
+  EOF
+  ```
+
+Errors go to stderr, with exit code 1. These commands came in version 0.2.0, and `save` in 0.5.0: an older binary
+opens its window instead, so check `CFBundleShortVersionString` before calling one.
 
 ## Stack
 
