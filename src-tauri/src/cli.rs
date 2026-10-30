@@ -2,10 +2,13 @@
 //! button of the same name does, so the two never disagree about a job.
 
 use crate::commands::{self, ApiError, JobView};
+use crate::jobs::{self, Job};
 use crate::runs::{self, RunRecord};
 use crate::schedule;
 use chrono::{Local, SecondsFormat};
 use serde::Serialize;
+use serde_json::Value;
+use std::io::Read;
 
 /// Runs listed per job in `status`: enough for a row of recent results.
 const RECENT_RUNS: usize = 10;
@@ -45,7 +48,53 @@ pub fn status() -> i32 {
             view,
         })
         .collect();
-    match serde_json::to_string(&Status { version: STATUS_VERSION, jobs }) {
+    print_json(&Status { version: STATUS_VERSION, jobs })
+}
+
+/// `claude-jobs save`: creates or changes a job from JSON on stdin, like **Save** in the editor, and prints it the way
+/// `status` lists it. A new job needs `id`, `name`, `prompt`, `hour` and `minute`, and gets the editor's defaults for
+/// the rest. For an existing id, the fields given replace the job's and the others stay as they are.
+pub fn save() -> i32 {
+    let mut input = String::new();
+    if let Err(e) = std::io::stdin().read_to_string(&mut input) {
+        return fail(format!("cannot read the job from stdin: {e}").into());
+    }
+    let result = jobs::load()
+        .map_err(ApiError::from)
+        .and_then(|all| job_from_input(&input, &all).map_err(ApiError::from))
+        .and_then(|(job, editing)| commands::save_job(job, editing));
+    match result {
+        Ok(view) => print_json(&view),
+        Err(e) => fail(e),
+    }
+}
+
+/// The job `input` describes, over the job of the same id if there is one, with that id when there is.
+fn job_from_input(input: &str, existing: &[Job]) -> Result<(Job, Option<String>), String> {
+    let given: Value = serde_json::from_str(input).map_err(|e| format!("The job is not JSON: {e}"))?;
+    let Value::Object(fields) = given else {
+        return Err("The job must be a JSON object.".to_string());
+    };
+    let id = fields.get("id").and_then(Value::as_str).ok_or("The job needs an \"id\".")?;
+    let current = existing.iter().find(|j| j.id == id);
+    let mut merged = match current.map(serde_json::to_value) {
+        Some(Ok(Value::Object(job))) => job,
+        Some(_) => return Err(format!("Cannot read the job {id} to change it.")),
+        None => serde_json::Map::new(),
+    };
+    merged.extend(fields.clone());
+    let job: Job = serde_json::from_value(Value::Object(merged)).map_err(|e| format!("The job does not fit: {e}"))?;
+    // serde skips fields it does not know, so a misspelt one would be lost without a word.
+    let known = serde_json::to_value(&job).map_err(|e| e.to_string())?;
+    let unknown: Vec<&str> = fields.keys().map(String::as_str).filter(|k| known.get(k).is_none()).collect();
+    if !unknown.is_empty() {
+        return Err(format!("Unknown fields: {}.", unknown.join(", ")));
+    }
+    Ok((job, current.map(|j| j.id.clone())))
+}
+
+fn print_json<T: Serialize>(value: &T) -> i32 {
+    match serde_json::to_string(value) {
         Ok(text) => {
             println!("{text}");
             0
@@ -123,5 +172,37 @@ mod tests {
         for key in ["id", "status", "trigger", "started_at", "duration_s", "cost_usd", "result"] {
             assert!(run.get(key).is_some(), "recent run {key} is missing");
         }
+    }
+
+    const NEW_JOB: &str = r#"{"id": "j", "name": "J", "prompt": "/j", "hour": 9, "minute": 0}"#;
+
+    #[test]
+    fn save_makes_a_new_job_with_the_defaults() {
+        let (job, editing) = job_from_input(NEW_JOB, &[]).expect("valid");
+        assert_eq!(editing, None);
+        assert_eq!((job.id.as_str(), job.hour, job.timeout_minutes, job.enabled), ("j", 9, 30, true));
+        assert!(!job.chrome && job.cwd.is_empty());
+    }
+
+    #[test]
+    fn save_changes_only_the_fields_given() {
+        let (mut current, _) = job_from_input(NEW_JOB, &[]).expect("valid");
+        current.allowed_tools = vec!["Read".into()];
+        let (job, editing) =
+            job_from_input(r#"{"id": "j", "enabled": false, "chrome": true}"#, &[current]).expect("valid");
+        assert_eq!(editing.as_deref(), Some("j"));
+        assert!(!job.enabled && job.chrome);
+        assert_eq!((job.prompt.as_str(), job.allowed_tools.clone()), ("/j", vec!["Read".to_string()]));
+    }
+
+    #[test]
+    fn save_refuses_what_it_cannot_read() {
+        let error = |input: &str| job_from_input(input, &[]).unwrap_err();
+        assert!(error("not json").starts_with("The job is not JSON"));
+        assert_eq!(error("[]"), "The job must be a JSON object.");
+        assert_eq!(error(r#"{"name": "J"}"#), "The job needs an \"id\".");
+        assert!(error(r#"{"id": "j", "name": "J"}"#).contains("prompt"));
+        let misspelt = NEW_JOB.replace("\"minute\": 0", "\"minute\": 0, \"promt\": \"/x\"");
+        assert_eq!(error(&misspelt), "Unknown fields: promt.");
     }
 }

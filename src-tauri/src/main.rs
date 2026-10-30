@@ -5,13 +5,14 @@ use claude_jobs_lib::cli;
 use claude_jobs_lib::runs::Trigger;
 
 fn main() {
-    // `claude-jobs run <job>` is what launchd calls: one headless run, no window. `status`, `start` and `watch` are
-    // for other apps, such as Dooock's widget.
+    // `claude-jobs run <job>` is what launchd calls: one headless run, no window. `status`, `start`, `watch` and
+    // `save` are for other apps, such as Dooock's widget, and for agents.
     let args: Vec<String> = std::env::args().skip(1).collect();
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("status"), _) => std::process::exit(cli::status()),
         (Some("start"), Some(job_id)) => std::process::exit(cli::start(job_id)),
         (Some("watch"), Some(job_id)) => std::process::exit(cli::watch(job_id)),
+        (Some("save"), _) => std::process::exit(cli::save()),
         (Some(command @ ("start" | "watch")), None) => {
             eprintln!("usage: claude-jobs {command} <job_id>");
             std::process::exit(2);
