@@ -5,6 +5,7 @@ import type { RunDetail } from '../domain/RunDetail'
 import type { RunRecord } from '../domain/RunRecord'
 import { cost, dateTime, duration, STATUS_LABEL, TRIGGER_LABEL } from '../format'
 import { Chip, runTone } from './Chip'
+import { Elapsed } from './Elapsed'
 
 export function History({ job, onClose }: { job: JobView; onClose: () => void }) {
   const [runs, setRuns] = useState<RunRecord[] | null>(null)
@@ -81,7 +82,13 @@ export function History({ job, onClose }: { job: JobView; onClose: () => void })
                   <td>
                     <Chip tone={runTone(r.status)}>{STATUS_LABEL[r.status]}</Chip>
                   </td>
-                  <td className="num">{duration(r.duration_s)}</td>
+                  <td className="num">
+                    {r.status === 'running' ? (
+                      <Elapsed since={r.started_at} />
+                    ) : (
+                      duration(r.duration_s)
+                    )}
+                  </td>
                   <td className="num">{r.num_turns ?? '—'}</td>
                   <td className="num">{cost(r.cost_usd)}</td>
                 </tr>
@@ -111,8 +118,13 @@ function Run({ detail }: { detail: RunDetail }) {
           <div>Interactive session: the result and cost come from its transcript.</div>
         )}
         <div>
-          Duration: {duration(detail.duration_s)} · turns: {detail.num_turns ?? '—'} · cost:{' '}
-          {cost(detail.cost_usd)}
+          Duration:{' '}
+          {detail.status === 'running' ? (
+            <Elapsed since={detail.started_at} />
+          ) : (
+            duration(detail.duration_s)
+          )}{' '}
+          · turns: {detail.num_turns ?? '—'} · cost: {cost(detail.cost_usd)}
         </div>
         {resume && (
           <div>
