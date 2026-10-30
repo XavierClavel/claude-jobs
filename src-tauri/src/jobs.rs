@@ -149,7 +149,21 @@ pub fn defaults() -> Defaults {
         .map(|d| Path::new(d).join("claude"))
         .find(|p| is_executable(p))
         .unwrap_or_else(|| home.join(".local/bin/claude"));
-    Defaults { claude: claude.display().to_string(), path: dirs.join(":"), cwd: home.display().to_string() }
+    // Made here, since the editor lists the skills found in it before the job is saved.
+    let _ = fs::create_dir_all(paths::workspace());
+    Defaults {
+        claude: claude.display().to_string(),
+        path: dirs.join(":"),
+        cwd: paths::workspace().display().to_string(),
+    }
+}
+
+/// An interactive session lists every file under its working folder as it starts, for its @ suggestions. From the
+/// home folder, or above it, that reaches Documents, Music, Pictures and the other folders macOS guards, and macOS
+/// asks to let Claude Jobs into each again after every update.
+fn holds_home(dir: &Path, home: &Path) -> bool {
+    let canonical = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canonical(home).starts_with(canonical(dir))
 }
 
 /// Checks a job from the editor and fills its defaults. `editing` is the id of the job being changed, if any.
@@ -204,9 +218,20 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
     if !(1..=240).contains(&job.timeout_minutes) {
         errors.push("Timeout must be 1 to 240 minutes.".to_string());
     }
-    let cwd = if job.cwd.trim().is_empty() { paths::home() } else { paths::expand_tilde(job.cwd.trim()) };
+    let cwd = if job.cwd.trim().is_empty() { paths::workspace() } else { paths::expand_tilde(job.cwd.trim()) };
+    if cwd == paths::workspace() {
+        let _ = fs::create_dir_all(&cwd);
+    }
     if !cwd.is_dir() {
         errors.push(format!("Working folder {} does not exist.", cwd.display()));
+    } else if job.interactive && holds_home(&cwd, &paths::home()) {
+        errors.push(format!(
+            "An interactive session cannot start in {}: it lists every file under its working folder, which from \
+             there reaches Documents, Music and Pictures, and macOS asks to let Claude Jobs in after every update. \
+             Pick another working folder in Advanced, such as {}.",
+            cwd.display(),
+            paths::workspace().display()
+        ));
     }
     job.cwd = cwd.display().to_string();
     let needs_defaults = job.claude.trim().is_empty() || job.path.trim().is_empty();
@@ -314,6 +339,24 @@ mod tests {
         let mut input = job("gcloud");
         input.conditions = vec![Condition::Gcloud, Condition::Claude, Condition::Gcloud];
         assert_eq!(validate(input, &[], None).expect("valid").conditions, vec![Condition::Gcloud]);
+    }
+
+    #[test]
+    fn only_the_home_folder_and_the_folders_above_it_hold_it() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(home.join("jobs")).expect("folders");
+        assert!(holds_home(&home, &home));
+        assert!(holds_home(tmp.path(), &home));
+        assert!(!holds_home(&home.join("jobs"), &home));
+    }
+
+    #[test]
+    fn an_interactive_job_cannot_start_in_the_home_folder() {
+        let interactive = Job { interactive: true, cwd: "~".into(), ..job("daily") };
+        let errors = validate(interactive, &[], None).unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("cannot start in")));
+        assert!(validate(Job { cwd: "~".into(), ..job("daily") }, &[], None).is_ok());
     }
 
     #[test]

@@ -28,6 +28,11 @@ pub fn logs_dir() -> PathBuf {
     base().join("logs")
 }
 
+/// The working folder of a job that needs no particular one: empty, so a session there reads nothing else.
+pub fn workspace() -> PathBuf {
+    base().join("workspace")
+}
+
 pub fn agents_dir() -> PathBuf {
     home().join("Library").join("LaunchAgents")
 }

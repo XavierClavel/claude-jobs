@@ -85,6 +85,7 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 - `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id), with
   `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside it. The last 100 runs are kept.
 - `logs/<job>.launchd.log`: what the runner itself printed.
+- `workspace/`: the working folder of jobs that need no particular one, empty (see Interactive jobs).
 
 On start, the app points every enabled job's launchd file at its own binary, so moving or updating the app keeps the
 schedules working.
@@ -136,6 +137,13 @@ an interactive job, and starting its runs, records the working folder as trusted
 (`~/.claude.json.lock`). Claude Code never keeps that answer for the home folder, and the app does not write it either
 (it would trust every folder in it): an interactive job needs a folder of its own. Should the question still show, the
 run stops at once instead of waiting for its timeout.
+
+The home folder is refused for another reason too, even where it is trusted: as it starts, an interactive session
+lists every file under its working folder (`rg --files`, for its @ suggestions; `claude -p` does not). From the home
+folder that reaches Documents, Music, Pictures and the other folders macOS guards, and macOS asks to let Claude Jobs
+into each. The app is signed ad hoc, so macOS knows it by the hash of its binary and asks again after every update.
+New jobs start in `~/.claude-jobs/workspace`, an empty folder the app makes, and so does a job saved with no working
+folder.
 
 A turn that ends on an API error (rate limit, overload, a refused login) never reaches the Stop hook, and the session
 would sit at its prompt until the timeout. A StopFailure hook, passed the same way, ends the run at once with the
