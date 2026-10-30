@@ -302,6 +302,9 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     if !job.model.is_empty() {
         cmd.args(["--model", &job.model]);
     }
+    if job.chrome {
+        cmd.arg("--chrome");
+    }
     if !job.allowed_tools.is_empty() {
         cmd.arg("--allowedTools").args(&job.allowed_tools);
     }

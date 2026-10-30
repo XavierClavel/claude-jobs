@@ -157,6 +157,15 @@ shows a warning when they are gone. **Sign in to Google Cloud** runs `gcloud aut
 background: the browser opens, and the bar turns green once you have signed in there (it gives up after 5 minutes).
 That refreshes the application default credentials too.
 
+## Chrome
+
+A job marked **Use Chrome** starts Claude with `--chrome`, for the Claude in Chrome tools: `claude -p` does not load
+them otherwise, even with Chrome enabled by default in Claude Code. They act in your own Chrome through the extension,
+signed in to the same claude.ai account. Claude Code does not open Chrome: a job that may run while it is closed, such
+as just after login, has to open it (`open -ga "Google Chrome"`) and wait about 10 seconds for the extension to
+connect. `file_upload` only takes files the run may read: keep them in the job's working folder, outside Documents,
+Downloads and the other folders macOS guards.
+
 ## Limits
 
 - A monthly job on the 29th, 30th or 31st skips the months without that day, as launchd does: a job on the 31st does

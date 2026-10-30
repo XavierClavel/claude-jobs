@@ -51,6 +51,7 @@ export function JobCard({
             unmet.length > 0 && <Chip tone="warn">Conditions not met</Chip>
           )}
           {job.interactive && <Chip tone="muted">Interactive</Chip>}
+          {job.chrome && <Chip tone="muted">Chrome</Chip>}
         </div>
         <div className="lines">
           <div>

@@ -45,6 +45,9 @@ pub struct Job {
     /// Run in a real Claude Code session (tmux) instead of `claude -p`: needed for the Artifact tools.
     #[serde(default)]
     pub interactive: bool,
+    /// Start Claude with `--chrome` for the Claude in Chrome tools: `claude -p` does not load them otherwise.
+    #[serde(default)]
+    pub chrome: bool,
     /// What the job needs before it starts besides Claude Code signed in, which every job needs: see `conditions`.
     #[serde(default)]
     pub conditions: Vec<Condition>,
@@ -282,6 +285,7 @@ mod tests {
             claude: "/bin/sh".into(),
             path: "/usr/bin:/bin".into(),
             interactive: false,
+            chrome: false,
             conditions: vec![],
         }
     }

@@ -24,6 +24,7 @@ export type Draft = {
   path: string
   enabled: boolean
   interactive: boolean
+  chrome: boolean
   // What the job needs on top of Claude Code signed in, which every job needs.
   conditions: Condition[]
 }
@@ -46,6 +47,7 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     path: job?.path ?? defaults?.path ?? '',
     enabled: job?.enabled ?? true,
     interactive: job?.interactive ?? false,
+    chrome: job?.chrome ?? false,
     conditions: job?.conditions ?? [],
   }
 }
@@ -91,6 +93,7 @@ export function toJob(draft: Draft): Job {
     claude: draft.claude,
     path: draft.path.trim(),
     interactive: draft.interactive,
+    chrome: draft.chrome,
     conditions: draft.conditions,
   }
 }
