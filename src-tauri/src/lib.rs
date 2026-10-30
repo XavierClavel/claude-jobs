@@ -9,6 +9,7 @@ pub mod paths;
 pub mod runner;
 pub mod runs;
 pub mod schedule;
+pub mod skills;
 pub mod tmux;
 pub mod trust;
 pub mod update;
@@ -39,6 +40,7 @@ pub fn run() {
             commands::claude_sign_in,
             commands::tmux_status,
             commands::install_tmux,
+            commands::list_skills,
             commands::app_version,
             commands::check_update,
             commands::install_update,

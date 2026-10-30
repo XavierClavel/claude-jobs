@@ -466,6 +466,50 @@ textarea {
   grid-template-columns: repeat(7, 46px);
 }
 
+/* The skills suggested under the prompt, over the fields below it. */
+.prompt {
+  position: relative;
+}
+
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: grid;
+  gap: 1px;
+  max-height: 264px;
+  overflow: auto;
+  margin-top: 4px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+.suggestions [role="option"] {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.suggestions [role="option"]:hover,
+.suggestions [aria-selected="true"] {
+  background: var(--select);
+}
+
+.suggestions [role="option"] > .muted {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+}
+
 .narrow {
   max-width: 180px;
 }

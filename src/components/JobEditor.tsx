@@ -3,6 +3,7 @@ import { api, errorsOf } from '../api'
 import type { Condition } from '../domain/Condition'
 import type { Defaults } from '../domain/Defaults'
 import type { JobView } from '../domain/JobView'
+import type { Skill } from '../domain/Skill'
 import type { TmuxStatus } from '../domain/TmuxStatus'
 import {
   type Draft,
@@ -14,6 +15,7 @@ import {
   withRepeat,
 } from '../editor'
 import { DAYS, MONTH_DAYS, scheduleText, slug } from '../format'
+import { PromptField } from './PromptField'
 import { TmuxNotice } from './TmuxNotice'
 
 const REPEATS: [Repeat, string][] = [
@@ -40,6 +42,7 @@ export function JobEditor({
   const [saving, setSaving] = useState(false)
   const [tmux, setTmux] = useState<TmuxStatus | null>(null)
   const [installing, setInstalling] = useState(false)
+  const [skills, setSkills] = useState<Skill[]>([])
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
 
@@ -48,6 +51,26 @@ export function JobEditor({
     if (!draft.interactive) return
     api.tmuxStatus(draft.path.trim()).then(setTmux, () => setTmux(null))
   }, [draft.interactive, draft.path])
+
+  // The skills the prompt suggests: those the job's runs find, which depend on its folder, Claude binary and PATH.
+  // Each check starts Claude Code, so it waits for a pause in typing.
+  useEffect(() => {
+    let latest = true
+    const timer = setTimeout(() => {
+      api.listSkills(draft.claude.trim(), draft.path.trim(), draft.cwd.trim()).then(
+        (found) => {
+          if (latest) setSkills(found)
+        },
+        () => {
+          if (latest) setSkills([])
+        },
+      )
+    }, 300)
+    return () => {
+      latest = false
+      clearTimeout(timer)
+    }
+  }, [draft.claude, draft.path, draft.cwd])
 
   async function installTmux() {
     setInstalling(true)
@@ -133,15 +156,7 @@ export function JobEditor({
           />
         </label>
       </div>
-      <label>
-        Prompt
-        <textarea
-          value={draft.prompt}
-          required
-          placeholder="/photobook-monitor"
-          onChange={(e) => set('prompt', e.target.value)}
-        />
-      </label>
+      <PromptField value={draft.prompt} skills={skills} onChange={(v) => set('prompt', v)} />
       <fieldset className="schedule">
         <legend>Schedule</legend>
         <div className="segmented" role="radiogroup" aria-label="Repeat">

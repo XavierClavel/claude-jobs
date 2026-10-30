@@ -4,6 +4,7 @@ use crate::conditions::{self, Condition, ConditionStatus};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
+use crate::skills::{self, Skill};
 use crate::tmux::{self, TmuxStatus};
 use crate::update::{self, AppUpdate};
 use crate::{interactive, launchd, paths, runner, schedule, trust};
@@ -264,6 +265,12 @@ pub fn tmux_status(path: String) -> TmuxStatus {
 #[tauri::command(async)]
 pub fn install_tmux(path: String) -> Reply<TmuxStatus> {
     Ok(tmux::install(&path)?)
+}
+
+/// The skills a prompt can start with, as the job's runs would find them: its Claude binary, PATH and folder.
+#[tauri::command(async)]
+pub fn list_skills(claude: String, path: String, cwd: String) -> Reply<Vec<Skill>> {
+    Ok(skills::list(&claude, &path, &cwd)?)
 }
 
 /// The version this app was built as, from package.json.
