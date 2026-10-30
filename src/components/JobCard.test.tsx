@@ -35,6 +35,10 @@ function job(overrides: Partial<JobView> = {}): JobView {
 const noop = () => {}
 
 describe('JobCard', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('shows the schedule and that the job never ran', () => {
     render(
       <JobCard
@@ -68,7 +72,8 @@ describe('JobCard', () => {
     expect(onToggle).toHaveBeenCalledOnce()
   })
 
-  it('cannot start a second run while one is running', () => {
+  it('shows how long a run has been going, and cannot start a second one meanwhile', () => {
+    vi.useFakeTimers({ now: new Date('2026-10-26T14:01:56Z') })
     const running = job({
       last_run: {
         id: '20261026T134651Z',
@@ -101,6 +106,8 @@ describe('JobCard', () => {
         onWatch={noop}
       />,
     )
+    expect(screen.getByText('15:05')).toBeInTheDocument()
+    expect(screen.getByText(/^Running since .* · started by hand$/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled()
   })
 

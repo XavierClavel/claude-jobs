@@ -126,12 +126,27 @@ button:disabled {
 }
 
 .job {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 14px 16px;
+}
+
+.job-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+/* A running job's time so far, big enough to read from across the room. */
+.job-timer {
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .job-head {
@@ -508,6 +523,13 @@ tbody tr.selected td {
 
 .num {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A run's time so far: its digits keep their width as they tick. */
+.elapsed {
+  color: var(--running);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 

@@ -1,4 +1,4 @@
-import { ago, cost, duration, ordinal, scheduleText, slug } from './format'
+import { ago, cost, duration, ordinal, scheduleText, slug, stopwatch } from './format'
 
 describe('scheduleText', () => {
   it('says every day when no day is picked', () => {
@@ -60,6 +60,14 @@ describe('durations, costs and ages', () => {
     expect(duration(45)).toBe('45 s')
     expect(duration(125)).toBe('2 min 5 s')
     expect(duration(null)).toBe('—')
+  })
+
+  it('shows a run still going as a stopwatch, with hours past an hour', () => {
+    expect(stopwatch(7)).toBe('0:07')
+    expect(stopwatch(754.9)).toBe('12:34')
+    expect(stopwatch(3599)).toBe('59:59')
+    expect(stopwatch(3725)).toBe('1:02:05')
+    expect(stopwatch(-3)).toBe('0:00')
   })
 
   it('rounds a cost to cents', () => {

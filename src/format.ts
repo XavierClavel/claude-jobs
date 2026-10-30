@@ -78,6 +78,14 @@ export function duration(seconds: number | null | undefined): string {
   return `${Math.floor(seconds / 60)} min ${seconds % 60} s`
 }
 
+// A run still going, as a stopwatch: 0:07, 12:34, then 1:02:05 past an hour.
+export function stopwatch(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  const minutes = Math.floor(s / 60)
+  if (minutes < 60) return `${minutes}:${pad(s % 60)}`
+  return `${Math.floor(minutes / 60)}:${pad(minutes % 60)}:${pad(s % 60)}`
+}
+
 export function cost(usd: number | null | undefined): string {
   if (usd === null || usd === undefined) return '—'
   return `$${usd.toFixed(2)}`
