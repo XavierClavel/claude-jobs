@@ -64,7 +64,8 @@ allow it in System Settings → Privacy & Security; `curl` does not quarantine i
 The window checks the GitHub releases at start and every 6 hours. When a newer version is out, a bar offers
 **Install and restart**: it downloads the release, checks its signature against the public key in
 `src-tauri/tauri.conf.json`, swaps it in place of the app and reopens the window. Runs in progress carry on, and the
-launchd agents call the same path, so their next run is on the new version. A dev build never checks.
+launchd agents call the same path, so their next run is on the new version. The ↻ next to the version checks at
+once: it says when the app is up to date, and shows the error when the check fails. A dev build never checks.
 
 To publish a version, bump `version` in `package.json` and merge to main. The Release workflow
 (`.github/workflows/release.yml`) sees a version with no release yet, runs the checks, then `pnpm release`: it builds

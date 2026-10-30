@@ -7,6 +7,7 @@ import { History } from './components/History'
 import { JobCard } from './components/JobCard'
 import { JobEditor } from './components/JobEditor'
 import { UpdateBar } from './components/UpdateBar'
+import { UpdateCheck } from './components/UpdateCheck'
 import type { AppUpdate } from './domain/AppUpdate'
 import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
@@ -80,6 +81,18 @@ export function App() {
     return () => clearTimeout(timer)
   }, [banner])
 
+  // Asked for from the header: unlike the 6-hourly check, it says when it fails.
+  async function checkUpdateNow() {
+    try {
+      const found = await api.checkUpdate()
+      setUpdate(found)
+      return found === null
+    } catch (e) {
+      setBanner(errorsOf(e))
+      return false
+    }
+  }
+
   async function act(action: () => Promise<unknown>, delay = 0) {
     try {
       await action()
@@ -92,7 +105,10 @@ export function App() {
   return (
     <>
       <header className="top">
-        <h1>Claude Jobs {version && <span className="version muted">{version}</span>}</h1>
+        <div className="title">
+          <h1>Claude Jobs {version && <span className="version muted">{version}</span>}</h1>
+          <UpdateCheck onCheck={checkUpdateNow} />
+        </div>
         <button type="button" className="primary" onClick={() => setEditing({ job: null })}>
           New job
         </button>

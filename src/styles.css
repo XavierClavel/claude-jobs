@@ -75,6 +75,41 @@ h3 {
   font-weight: 400;
 }
 
+.title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button.icon {
+  display: inline-flex;
+  padding: 4px;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+
+button.icon:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--fg);
+}
+
+button.icon.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.icon.spinning svg {
+    animation: none;
+  }
+}
+
 .jobs {
   display: grid;
   gap: 14px;
