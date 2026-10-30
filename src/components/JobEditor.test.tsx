@@ -1,9 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import { JobEditor } from './JobEditor'
 
-vi.mock('../api', () => ({ api: { saveJob: vi.fn() }, errorsOf: () => [] }))
+vi.mock('../api', () => ({
+  api: { saveJob: vi.fn(), listSkills: vi.fn(() => Promise.resolve([])) },
+  errorsOf: () => [],
+}))
 
 const defaults = { claude: '/bin/claude', path: '/usr/bin:/bin', cwd: '/Users/me' }
 
@@ -81,5 +84,62 @@ describe('JobEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Pick at least one day of the week.')
     expect(api.saveJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('JobEditor prompt', () => {
+  const skills = [
+    { name: 'photobook-monitor', description: 'Refresh the photobook monitor', argument_hint: '' },
+    { name: 'prompt-review:prompt-review', description: 'Grade recent prompts', argument_hint: '' },
+    { name: 'code-review', description: 'Review the diff', argument_hint: '[low|high]' },
+  ]
+
+  async function openEditor() {
+    vi.mocked(api.listSkills).mockClear().mockResolvedValue(skills)
+    render(<JobEditor job={null} defaults={defaults} onClose={() => {}} onSaved={() => {}} />)
+    await waitFor(() =>
+      expect(api.listSkills).toHaveBeenCalledWith('/bin/claude', '/usr/bin:/bin', '/Users/me'),
+    )
+    return screen.getByLabelText('Prompt')
+  }
+
+  it('suggests the skills that match what follows the slash', async () => {
+    const prompt = await openEditor()
+    await userEvent.type(prompt, '/')
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+    await userEvent.type(prompt, 'pr')
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '/prompt-review:prompt-reviewGrade recent prompts',
+    ])
+  })
+
+  it('puts in the skill picked with the arrows and Enter', async () => {
+    const prompt = await openEditor()
+    await userEvent.type(prompt, '/re')
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('/prompt-review')
+    await userEvent.keyboard('{ArrowDown}')
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('/code-review')
+    await userEvent.keyboard('{Enter}')
+    expect(prompt).toHaveValue('/code-review ')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    await userEvent.type(prompt, 'high')
+    expect(prompt).toHaveValue('/code-review high')
+  })
+
+  it('puts in the skill clicked', async () => {
+    const prompt = await openEditor()
+    await userEvent.type(prompt, 'Run /pho')
+    await userEvent.click(screen.getByRole('option', { name: /photobook-monitor/ }))
+    expect(prompt).toHaveValue('Run /photobook-monitor ')
+    expect(prompt).toHaveFocus()
+  })
+
+  it('hides the list on Escape, and shows it again on the next key', async () => {
+    const prompt = await openEditor()
+    await userEvent.type(prompt, '/p')
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    await userEvent.type(prompt, 'h')
+    expect(screen.getByRole('option')).toHaveTextContent('/photobook-monitor')
   })
 })

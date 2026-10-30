@@ -8,6 +8,7 @@ import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
 import type { RunDetail } from './domain/RunDetail'
 import type { RunRecord } from './domain/RunRecord'
+import type { Skill } from './domain/Skill'
 import type { TmuxStatus } from './domain/TmuxStatus'
 
 // One function per Rust command in `src-tauri/src/commands.rs`.
@@ -27,6 +28,8 @@ export const api = {
   claudeSignIn: () => invoke<void>('claude_sign_in'),
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
+  listSkills: (claude: string, path: string, cwd: string) =>
+    invoke<Skill[]>('list_skills', { claude, path, cwd }),
   appVersion: () => invoke<string>('app_version'),
   checkUpdate: () => invoke<AppUpdate | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
