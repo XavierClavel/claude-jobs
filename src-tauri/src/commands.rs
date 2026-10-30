@@ -1,8 +1,9 @@
 //! What the window can ask for. Every write goes through one lock, so two saves cannot interleave.
 
+use crate::conditions::{self, Condition, ConditionStatus};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
-use crate::runs::{self, RunDetail, RunRecord, Trigger};
+use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
 use crate::tmux::{self, TmuxStatus};
 use crate::update::{self, AppUpdate};
 use crate::{interactive, launchd, paths, runner, schedule, trust};
@@ -25,6 +26,10 @@ pub struct JobView {
     pub loaded: bool,
     pub next_run: Option<String>,
     pub last_run: Option<RunRecord>,
+    /// A run held until the job's conditions are met, which starts by itself once they are.
+    pub waiting: Option<Waiting>,
+    /// The conditions the job needs that are not met, from a check at most a few minutes old.
+    pub unmet_conditions: Vec<ConditionStatus>,
 }
 
 #[derive(Serialize, TS, Clone, Debug)]
@@ -57,6 +62,8 @@ fn view(job: Job) -> JobView {
         loaded: launchd::is_loaded(&job.id),
         next_run: schedule::next_run(&job, Local::now()).map(|t| t.to_rfc3339_opts(SecondsFormat::Secs, false)),
         last_run: runs::list(&job.id, 1).into_iter().next(),
+        waiting: runs::waiting(&job.id),
+        unmet_conditions: conditions::unmet(&job, false),
         job,
     }
 }
@@ -128,6 +135,11 @@ pub fn run_now(id: String) -> Reply<()> {
     if runs::is_running(&id) {
         return Err("This job is already running.".to_string().into());
     }
+    if runs::waiting(&id).is_some() {
+        return Err("This job is already waiting for its conditions: it starts as soon as they are met."
+            .to_string()
+            .into());
+    }
     runner::spawn(&job, Trigger::Manual)?;
     Ok(())
 }
@@ -193,13 +205,53 @@ fn open_in_terminal(name: &str, body: &str) -> Reply<()> {
 
 #[tauri::command(async)]
 pub fn gcloud_status() -> GcloudStatus {
-    gcloud::status()
+    let status = gcloud::status();
+    conditions::record_gcloud(&status);
+    status
 }
 
 /// Signs in to Google Cloud through the browser and returns the new status once done.
 #[tauri::command(async)]
 pub fn gcloud_sign_in() -> Reply<GcloudStatus> {
-    Ok(gcloud::sign_in()?)
+    let status = gcloud::sign_in()?;
+    conditions::record_gcloud(&status);
+    Ok(status)
+}
+
+/// The job whose Claude binary and PATH the window checks Claude Code with: the jobs normally share them.
+fn claude_job() -> Reply<Option<Job>> {
+    Ok(jobs::load()?.into_iter().next())
+}
+
+/// Whether Claude Code is signed in, checked now, as the runs would find it. Met while there is no job to run.
+#[tauri::command(async)]
+pub fn claude_status() -> Reply<ConditionStatus> {
+    Ok(match claude_job()? {
+        Some(job) => conditions::claude_now(&job),
+        None => ConditionStatus { condition: Condition::Claude, problem: None },
+    })
+}
+
+/// Opens Terminal on `claude auth login`, with the environment the runs get, so the login is the one they use.
+#[tauri::command(async)]
+pub fn claude_sign_in() -> Reply<()> {
+    let (claude, path) = match claude_job()? {
+        Some(job) => (job.claude, job.path),
+        None => {
+            let d = jobs::defaults();
+            (d.claude, d.path)
+        }
+    };
+    let home = paths::home().display().to_string();
+    let user = std::env::var("USER").unwrap_or_default();
+    let env = [("PATH", path.as_str()), ("HOME", home.as_str()), ("USER", user.as_str())]
+        .map(|(name, value)| format!("{name}={}", interactive::shell_quote(value)))
+        .join(" ");
+    let body = format!(
+        "#!/bin/zsh\nexec env -i {env} TERM=xterm-256color LANG=en_US.UTF-8 {} auth login\n",
+        interactive::shell_quote(&claude)
+    );
+    open_in_terminal("claude-login", &body)
 }
 
 /// Whether tmux, which interactive jobs need, is found on `path`, the job's PATH, and Homebrew can install it.

@@ -22,6 +22,23 @@ as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.laun
 A run that fails or times out puts up an alert that stays on screen until you close it, with its error and an **Open
 Claude Jobs** button.
 
+## Conditions
+
+A job starts only when its conditions are met: Claude Code signed in, for every job, and Google Cloud signed in, for
+the jobs that tick it in the editor (those that read BigQuery or Cloud Logging). When one is not, the run waits instead
+of starting: it checks again every 30 seconds and starts as soon as they are all met, whether it came from the
+schedule, a catch-up or **Run now**. A waiting run is not in the history; its card says what it waits for, and if it is
+still waiting after 2 minutes an alert says so too. Pausing or deleting the job ends the wait.
+
+Claude Code is signed out when `claude auth status` says so, and its login has expired when the claude.ai login's
+refresh token has (read from the keychain item `Claude Code-credentials`; only that date is kept). A run Claude Code
+turns away for its login anyway (the API answers 401, or an interactive session shows "Login expired · Please run
+/login") is not recorded: it goes back to waiting until the credentials change, which signing in again does. The
+window shows a **Sign in to Claude Code** bar meanwhile, which opens Terminal on `claude auth login`.
+
+The last check of each condition is kept in `conditions.json`, a minute for Claude Code and 5 minutes for Google Cloud,
+for the window and `claude-jobs status`; a waiting run always checks again.
+
 ## Requirements
 
 - Claude Code, signed in (run `claude` once).
@@ -64,6 +81,7 @@ publishing. Keep a copy of the key: installed apps only accept updates signed wi
 Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_jobs.py` page:
 
 - `jobs.json`: the jobs.
+- `conditions.json`: the last check of each condition (see Conditions).
 - `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id), with
   `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside it. The last 100 runs are kept.
 - `logs/<job>.launchd.log`: what the runner itself printed.
@@ -77,7 +95,8 @@ Other apps drive Claude Jobs through its binary, `Claude Jobs.app/Contents/MacOS
 widget uses `status` and `watch`:
 
 - `claude-jobs status` prints every job as JSON, with `next_run`, `previous_run` (its last scheduled time, to tell
-  whether it is due today) and its last 10 runs in `recent`, newest first.
+  whether it is due today), its last 10 runs in `recent`, newest first, the conditions it needs that are not met in
+  `unmet_conditions` (`condition`, `claude` or `gcloud`, and `problem`), and `waiting` while a run waits for them.
   `version` changes only when a field goes away or changes meaning.
 - `claude-jobs start <job>` starts a run now, like **Run now**.
 - `claude-jobs watch <job>` opens Terminal on a running interactive job, like **Watch**.
@@ -117,6 +136,10 @@ an interactive job, and starting its runs, records the working folder as trusted
 (`~/.claude.json.lock`). Claude Code never keeps that answer for the home folder, and the app does not write it either
 (it would trust every folder in it): an interactive job needs a folder of its own. Should the question still show, the
 run stops at once instead of waiting for its timeout.
+
+A turn that ends on an API error (rate limit, overload, a refused login) never reaches the Stop hook, and the session
+would sit at its prompt until the timeout. A StopFailure hook, passed the same way, ends the run at once with the
+error; a refused login sends it back to waiting (see Conditions).
 
 ## Google Cloud
 

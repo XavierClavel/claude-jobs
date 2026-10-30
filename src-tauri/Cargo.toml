@@ -1,6 +1,6 @@
 [package]
 name = "claude-jobs"
-version = "0.2.0"
+version = "0.3.0"
 description = "Run headless Claude Code prompts on a schedule with launchd"
 authors = ["Xavier Clavel"]
 edition = "2021"

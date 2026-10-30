@@ -1,3 +1,4 @@
+import type { Condition } from './domain/Condition'
 import type { Defaults } from './domain/Defaults'
 import type { Job } from './domain/Job'
 import { clock } from './format'
@@ -23,6 +24,8 @@ export type Draft = {
   path: string
   enabled: boolean
   interactive: boolean
+  // What the job needs on top of Claude Code signed in, which every job needs.
+  conditions: Condition[]
 }
 
 export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
@@ -43,6 +46,7 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     path: job?.path ?? defaults?.path ?? '',
     enabled: job?.enabled ?? true,
     interactive: job?.interactive ?? false,
+    conditions: job?.conditions ?? [],
   }
 }
 
@@ -87,5 +91,6 @@ export function toJob(draft: Draft): Job {
     claude: draft.claude,
     path: draft.path.trim(),
     interactive: draft.interactive,
+    conditions: draft.conditions,
   }
 }

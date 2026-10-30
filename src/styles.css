@@ -206,12 +206,17 @@ button:disabled {
   font-size: 12.5px;
 }
 
+.problem {
+  color: var(--warn);
+}
+
 .errors {
   color: var(--bad);
   margin: 0;
   padding-left: 18px;
 }
 
+.signin,
 .gcloud,
 .update {
   display: flex;
@@ -222,11 +227,13 @@ button:disabled {
   font-size: 13px;
 }
 
+.signin .muted,
 .gcloud .muted,
 .update .muted {
   flex: 1 1 200px;
 }
 
+.signin-out,
 .gcloud-out,
 .update {
   padding: 10px 12px;
@@ -335,7 +342,8 @@ textarea {
   width: auto;
 }
 
-.schedule {
+.schedule,
+.box {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
@@ -344,7 +352,8 @@ textarea {
   padding: 6px 14px 14px;
 }
 
-.schedule legend {
+.schedule legend,
+.box legend {
   font-size: 13px;
   font-weight: 600;
   padding: 0 4px;

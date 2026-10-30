@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ApiError } from './domain/ApiError'
 import type { AppUpdate } from './domain/AppUpdate'
+import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
@@ -22,6 +23,8 @@ export const api = {
   getRun: (id: string, runId: string) => invoke<RunDetail>('get_run', { id, runId }),
   gcloudStatus: () => invoke<GcloudStatus>('gcloud_status'),
   gcloudSignIn: () => invoke<GcloudStatus>('gcloud_sign_in'),
+  claudeStatus: () => invoke<ConditionStatus>('claude_status'),
+  claudeSignIn: () => invoke<void>('claude_sign_in'),
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
   appVersion: () => invoke<string>('app_version'),

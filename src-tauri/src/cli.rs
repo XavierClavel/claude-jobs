@@ -79,6 +79,7 @@ fn fail(e: ApiError) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conditions::{Condition, ConditionStatus, CLAUDE_EXPIRED};
     use crate::jobs::Job;
 
     #[test]
@@ -96,6 +97,11 @@ mod tests {
             loaded: true,
             next_run: Some("2026-10-30T09:00:00+01:00".into()),
             last_run: Some(run.clone()),
+            waiting: None,
+            unmet_conditions: vec![ConditionStatus {
+                condition: Condition::Claude,
+                problem: Some(CLAUDE_EXPIRED.into()),
+            }],
         };
         let previous_run = Some("2026-10-29T09:00:00+01:00".into());
         let status =
@@ -103,9 +109,14 @@ mod tests {
         let value = serde_json::to_value(&status).expect("serializes");
         assert_eq!(value["version"], 1);
         let job = &value["jobs"][0];
-        for key in ["id", "name", "prompt", "hour", "minute", "weekdays", "month_days", "enabled", "interactive"] {
+        for key in
+            ["id", "name", "prompt", "hour", "minute", "weekdays", "month_days", "enabled", "interactive", "waiting"]
+        {
             assert!(job.get(key).is_some(), "{key} is missing");
         }
+        assert_eq!(job["conditions"], serde_json::json!([]));
+        assert_eq!(job["unmet_conditions"][0]["condition"], "claude");
+        assert_eq!(job["unmet_conditions"][0]["problem"], CLAUDE_EXPIRED);
         assert_eq!(job["next_run"], "2026-10-30T09:00:00+01:00");
         assert_eq!(job["previous_run"], "2026-10-29T09:00:00+01:00");
         let run = &job["recent"][0];

@@ -1,7 +1,8 @@
 //! One headless run of a job: `claude -p <prompt> --output-format json`, recorded in the job's history.
 
+use crate::conditions::{self, ConditionStatus, CLAUDE_EXPIRED};
 use crate::jobs::{self, Job};
-use crate::runs::{self, RunRecord, RunStatus, Trigger};
+use crate::runs::{self, RunRecord, RunStatus, Trigger, Waiting};
 use crate::{paths, schedule};
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use std::fs::File;
@@ -13,12 +14,29 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const NETWORK_WAIT: Duration = Duration::from_secs(300);
+/// How often a run waiting for its job's conditions checks them again.
+const CONDITION_POLL: Duration = Duration::from_secs(30);
+/// A wait shorter than this, such as for the network after the Mac wakes, needs no alert.
+const WAIT_ALERT_AFTER: Duration = Duration::from_secs(120);
 
 /// A session that finishes is not a run that worked: Claude says which it was on the last line of its answer.
 pub const STATUS_INSTRUCTION: &str = "This is an unattended scheduled run that nobody watches. End your final \
 message with a line of its own: `RUN STATUS: FAILED` when the task could not be done (for example a data source, \
 credential or tool failed and you stopped), otherwise `RUN STATUS: OK`.";
 const STATUS_PREFIX: &str = "RUN STATUS:";
+
+/// How Claude Code turns away a session whose login expired: "Login expired · Please run /login".
+pub fn is_login_error(text: &str) -> bool {
+    text.contains("Login expired") || text.contains("Please run /login")
+}
+
+/// How a run that started ended.
+pub enum Outcome {
+    /// Done, well or not: the record says how.
+    Finished,
+    /// Claude Code turned the run away before it did anything: its login expired.
+    LoginExpired,
+}
 
 /// Removes the status line from Claude's answer and returns whether it reported a failure.
 fn split_status(result: &str) -> (String, bool) {
@@ -56,7 +74,7 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
             return 2;
         }
     };
-    if runs::is_running(job_id) {
+    if runs::is_running(job_id) || runs::waiting(job_id).is_some() {
         eprintln!("{job_id} is already running");
         return 3;
     }
@@ -69,6 +87,74 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
             return 0;
         }
     }
+    let mut job = job;
+    loop {
+        job = match wait_for_conditions(job, trigger) {
+            Some(job) => job,
+            None => return 0,
+        };
+        if let Some(code) = attempt(&job, trigger) {
+            return code;
+        }
+        eprintln!("{job_id}: Claude Code's login expired; the run waits for a new one");
+    }
+}
+
+/// Holds the run until the job's conditions are met, checking every 30 s, and returns the job as it is then. None
+/// when the job was deleted meanwhile, or paused while its scheduled run waited.
+fn wait_for_conditions(job: Job, trigger: Trigger) -> Option<Job> {
+    let mut unmet = conditions::unmet(&job, true);
+    if unmet.is_empty() {
+        return Some(job);
+    }
+    let waiting =
+        Waiting { since: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true), trigger, pid: std::process::id() };
+    if let Err(e) = runs::save_waiting(&job.id, &waiting) {
+        eprintln!("cannot record the wait: {e}");
+    }
+    eprintln!("{}: waiting: {}", job.id, problems(&unmet));
+    let was_enabled = job.enabled;
+    let since = Instant::now();
+    // Whoever started a run by hand is looking at it.
+    let mut alerted = trigger == Trigger::Manual;
+    let mut job = job;
+    loop {
+        if !alerted && since.elapsed() >= WAIT_ALERT_AFTER {
+            let message = format!("{} The job starts as soon as that is done.", problems(&unmet));
+            alert(&format!("Claude job waiting: {}", job.name), &message);
+            alerted = true;
+        }
+        thread::sleep(CONDITION_POLL);
+        match jobs::find(&job.id) {
+            Ok(Some(current)) if current.enabled || !was_enabled => job = current,
+            Ok(_) => {
+                runs::clear_waiting(&job.id);
+                eprintln!("{}: paused or deleted, no longer waiting", job.id);
+                return None;
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                continue;
+            }
+        }
+        unmet = conditions::unmet(&job, true);
+        if unmet.is_empty() {
+            break;
+        }
+    }
+    runs::clear_waiting(&job.id);
+    eprintln!("{}: conditions met after {} s, starting", job.id, since.elapsed().as_secs());
+    Some(job)
+}
+
+fn problems(unmet: &[ConditionStatus]) -> String {
+    unmet.iter().filter_map(|c| c.problem.as_deref()).collect::<Vec<_>>().join(" ")
+}
+
+/// One recorded run, and its exit code. None when Claude Code turned it away for an expired login: the run is
+/// forgotten, and waits for a new login.
+fn attempt(job: &Job, trigger: Trigger) -> Option<i32> {
+    let job_id = job.id.as_str();
     let started = Utc::now();
     let mut rec = RunRecord {
         id: started.format("%Y%m%dT%H%M%SZ").to_string(),
@@ -92,15 +178,23 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
     };
     if let Err(e) = runs::save(&rec) {
         eprintln!("cannot record the run: {e}");
-        return 1;
+        return Some(1);
     }
 
-    let outcome = if job.interactive { crate::interactive::execute(&job, &mut rec) } else { execute(&job, &mut rec) };
+    let outcome = if job.interactive { crate::interactive::execute(job, &mut rec) } else { execute(job, &mut rec) };
     let ended = Utc::now();
     rec.ended_at = Some(ended.to_rfc3339_opts(SecondsFormat::Secs, true));
     rec.duration_s = Some((ended - started).num_seconds().max(0) as u32);
     match outcome {
-        Ok(()) => {}
+        Ok(Outcome::Finished) => {}
+        Ok(Outcome::LoginExpired) if conditions::record_expired_login() => {
+            runs::remove(job_id, &rec.id);
+            return None;
+        }
+        Ok(Outcome::LoginExpired) => {
+            rec.status = RunStatus::Failed;
+            rec.error = Some(CLAUDE_EXPIRED.to_string());
+        }
         Err(e) => {
             rec.status = RunStatus::Failed;
             rec.error = Some(e);
@@ -112,11 +206,7 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
         let last_line = rec.error.as_deref().and_then(|e| e.lines().last()).unwrap_or("The run did not finish.");
         alert(&format!("Claude job failed: {}", job.name), last_line);
     }
-    if rec.status == RunStatus::Ok {
-        0
-    } else {
-        1
-    }
+    Some(if rec.status == RunStatus::Ok { 0 } else { 1 })
 }
 
 /// Starts `run <job>` in its own process, detached from the caller, with the environment launchd gives the job.
@@ -203,7 +293,7 @@ fn wait_for_network() {
     eprintln!("no network after {} s, starting anyway", NETWORK_WAIT.as_secs());
 }
 
-fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
+fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     let dir = runs::dir(&job.id);
     let out_path = dir.join(format!("{}.out", rec.id));
     let err_path = dir.join(format!("{}.err", rec.id));
@@ -249,6 +339,9 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
     } else {
         RunStatus::Ok
     };
+    if is_error && !timed_out && login_refused(&output) {
+        return Ok(Outcome::LoginExpired);
+    }
     apply_verdict(rec);
     if rec.status != RunStatus::Ok && rec.error.is_none() {
         let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
@@ -260,7 +353,13 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<(), String> {
             _ => format!("claude exited with code {code}"),
         });
     }
-    Ok(())
+    Ok(Outcome::Finished)
+}
+
+/// Whether `claude -p` was refused for its login: the API said 401, or Claude Code asked for /login.
+fn login_refused(output: &serde_json::Value) -> bool {
+    output.get("api_error_status").and_then(serde_json::Value::as_u64) == Some(401)
+        || output.get("result").and_then(serde_json::Value::as_str).is_some_and(is_login_error)
 }
 
 fn wait(child: &mut Child, limit: Duration) -> (i32, bool) {
@@ -346,6 +445,17 @@ mod tests {
         let mut rec = finished("Dashboard updated.");
         apply_verdict(&mut rec);
         assert_eq!((rec.status, rec.result.as_deref()), (RunStatus::Ok, Some("Dashboard updated.")));
+    }
+
+    #[test]
+    fn a_headless_run_refused_for_its_login_is_told_apart() {
+        let refused = serde_json::json!({"is_error": true, "api_error_status": 401,
+            "result": "Failed to authenticate. API Error: 401 Invalid bearer token"});
+        assert!(login_refused(&refused));
+        assert!(login_refused(&serde_json::json!({"is_error": true, "result": "Login expired · Please run /login"})));
+        assert!(!login_refused(
+            &serde_json::json!({"is_error": true, "api_error_status": 529, "result": "Overloaded"})
+        ));
     }
 
     #[test]
