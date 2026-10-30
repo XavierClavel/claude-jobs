@@ -44,7 +44,7 @@ struct Listed {
 
 /// The skills Claude Code at `claude` finds in `cwd`, run with `path` as its PATH, the way the job's runs are.
 pub fn list(claude: &str, path: &str, cwd: &str) -> Result<Vec<Skill>, String> {
-    let cwd = if cwd.trim().is_empty() { paths::home() } else { paths::expand_tilde(cwd.trim()) };
+    let cwd = if cwd.trim().is_empty() { paths::workspace() } else { paths::expand_tilde(cwd.trim()) };
     ask(&paths::expand_tilde(claude.trim()), path, &cwd)
 }
 

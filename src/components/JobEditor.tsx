@@ -313,8 +313,9 @@ export function JobEditor({
         Runs a real Claude Code session in tmux instead of <span className="mono">claude -p</span>.
         Needed for tools a headless run does not get, such as the Artifact tools; you can watch it
         live while it runs. Needs tmux, which the editor can install for you. Saving tells Claude
-        Code to trust the working folder, as accepting its trust question would; it never trusts
-        your home folder that way, so pick another one.
+        Code to trust the working folder, as accepting its trust question would. Not your home
+        folder: a session lists every file in its folder as it starts, and from there macOS would
+        ask to let Claude Jobs into Documents, Music and Pictures after every update.
       </p>
       {draft.interactive && (
         <TmuxNotice status={tmux} installing={installing} onInstall={installTmux} />
