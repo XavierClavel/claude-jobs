@@ -220,6 +220,7 @@ mod tests {
             claude: String::new(),
             path: String::new(),
             interactive: false,
+            chrome: false,
             conditions: vec![],
         }
     }

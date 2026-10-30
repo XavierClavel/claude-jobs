@@ -47,6 +47,10 @@ export type JobView = {
    */
   interactive: boolean
   /**
+   * Start Claude with `--chrome` for the Claude in Chrome tools: `claude -p` does not load them otherwise.
+   */
+  chrome: boolean
+  /**
    * What the job needs before it starts besides Claude Code signed in, which every job needs: see `conditions`.
    */
   conditions: Array<Condition>

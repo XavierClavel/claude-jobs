@@ -52,6 +52,13 @@ describe('editor drafts', () => {
     expect(toJob({ ...draft, monthDays: [31], repeat: 'daily' }).last_day_fallback).toBe(false)
   })
 
+  it('keeps the Chrome option, off for a new job', () => {
+    expect(toDraft(null, defaults).chrome).toBe(false)
+    const job = toJob({ ...toDraft(null, defaults), chrome: true })
+    expect(job.chrome).toBe(true)
+    expect(toDraft(job, defaults).chrome).toBe(true)
+  })
+
   it('keeps the conditions a job adds, none for a new one', () => {
     expect(toDraft(null, defaults).conditions).toEqual([])
     const job = toJob({ ...toDraft(null, defaults), conditions: ['gcloud'] })

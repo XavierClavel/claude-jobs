@@ -100,6 +100,9 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     if !job.model.is_empty() {
         args.extend(["--model".into(), job.model.clone()]);
     }
+    if job.chrome {
+        args.push("--chrome".into());
+    }
     if !job.allowed_tools.is_empty() {
         args.push("--allowedTools".into());
         args.extend(job.allowed_tools.iter().cloned());

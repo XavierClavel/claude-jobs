@@ -323,6 +323,19 @@ export function JobEditor({
       <label className="check">
         <input
           type="checkbox"
+          checked={draft.chrome}
+          onChange={(e) => set('chrome', e.target.checked)}
+        />
+        Use Chrome
+      </label>
+      <p className="muted hint">
+        Starts Claude with <span className="mono">--chrome</span>, for the Claude in Chrome tools: a
+        headless run does not load them otherwise. Claude does not open Chrome itself, so a prompt
+        that may find it closed has to open it. Allow the browser tools above.
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={draft.enabled}
           onChange={(e) => set('enabled', e.target.checked)}
         />

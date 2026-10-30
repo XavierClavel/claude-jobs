@@ -21,6 +21,7 @@ function job(overrides: Partial<JobView> = {}): JobView {
     claude: '/bin/claude',
     path: '/usr/bin',
     interactive: false,
+    chrome: false,
     conditions: [],
     label: 'com.claude-jobs.photobook-monitor',
     loaded: true,
