@@ -1,7 +1,14 @@
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { api, errorsOf } from '../api'
-import { type Checks, conditionState } from '../conditions'
-import type { Condition } from '../domain/Condition'
+import {
+  type Checks,
+  commandOf,
+  conditionState,
+  fullName,
+  isBuiltIn,
+  optionalConditions,
+  required,
+} from '../conditions'
 import type { Defaults } from '../domain/Defaults'
 import type { JobView } from '../domain/JobView'
 import type { Skill } from '../domain/Skill'
@@ -16,9 +23,9 @@ import {
   withRepeat,
 } from '../editor'
 import { DAYS, MONTH_DAYS, scheduleText, slug } from '../format'
-import { CONDITION_NAME } from '../jobs'
 import { Icon } from './Icon'
 import { PromptField } from './PromptField'
+import { Switch } from './Switch'
 import { TmuxNotice } from './TmuxNotice'
 
 const REPEATS: [Repeat, string][] = [
@@ -122,7 +129,7 @@ export function JobEditor({
     }
   }
 
-  function toggleCondition(condition: Condition, on: boolean) {
+  function toggleCondition(condition: string, on: boolean) {
     const rest = draft.conditions.filter((c) => c !== condition)
     set('conditions', on ? [...rest, condition] : rest)
   }
@@ -392,46 +399,15 @@ export function JobEditor({
   )
 }
 
-function Switch({
-  label,
-  checked,
-  onChange,
-  children,
-}: {
-  label: string
-  checked: boolean
-  onChange: (on: boolean) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="switch">
-      <input
-        type="checkbox"
-        role="switch"
-        aria-checked={checked}
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className="knob" />
-      <span>
-        <span className="switch-label">{label}</span>
-        <span className="switch-text">{children}</span>
-      </span>
-    </label>
-  )
-}
-
-const OPTIONAL: Condition[] = ['gcloud']
-
-// What the job waits for: Claude Code always, and those picked from the conditions that exist.
+// What the job waits for: those on every job, and those picked from the conditions that exist.
 function ConditionsCard({
   conditions,
   checks,
   onToggle,
 }: {
-  conditions: Condition[]
+  conditions: string[]
   checks: Checks
-  onToggle: (condition: Condition, on: boolean) => void
+  onToggle: (condition: string, on: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLElement>(null)
@@ -453,7 +429,7 @@ function ConditionsCard({
     }
   }, [open])
 
-  const status = (condition: Condition) => {
+  const status = (condition: string) => {
     const state = conditionState(condition, checks)
     const tone = state.met === null ? 'muted' : state.met ? 'ok' : 'warn'
     const text =
@@ -464,6 +440,15 @@ function ConditionsCard({
           : 'Not met right now · its next run would wait'
     return { tone, text }
   }
+
+  const everyJob = required({ conditions: [] }, checks)
+  const optional = optionalConditions(checks)
+  // A condition the job ticked that has since been made one for every job shows once, locked.
+  const picked = optional.filter((c) => conditions.includes(c))
+  const about = (condition: string) =>
+    condition === 'gcloud'
+      ? 'For BigQuery or Cloud Logging'
+      : (commandOf(condition, checks)?.command ?? '')
 
   return (
     <section className="card picker-anchor" aria-label="Conditions" ref={ref}>
@@ -481,27 +466,31 @@ function ConditionsCard({
         </button>
       </div>
       <div className="stack-6">
-        <div className="condition-item">
-          <span className={`dot dot-${status('claude').tone}`} />
-          <span className="condition-text">
-            <span className="condition-name">Claude Code signed in</span>
-            <span className="condition-sub">Required by every job · {status('claude').text}</span>
-          </span>
-          <span className="muted" role="img" aria-label="Always on" title="Every job needs it">
-            <Icon name="lock" />
-          </span>
-        </div>
-        {OPTIONAL.filter((c) => conditions.includes(c)).map((condition) => (
+        {everyJob.map((condition) => (
           <div key={condition} className="condition-item">
             <span className={`dot dot-${status(condition).tone}`} />
             <span className="condition-text">
-              <span className="condition-name">{CONDITION_NAME[condition]} signed in</span>
+              <span className="condition-name">{fullName(condition, checks)}</span>
+              <span className="condition-sub">
+                Required by every job · {status(condition).text}
+              </span>
+            </span>
+            <span className="muted" role="img" aria-label="Always on" title="Every job needs it">
+              <Icon name="lock" />
+            </span>
+          </div>
+        ))}
+        {picked.map((condition) => (
+          <div key={condition} className="condition-item">
+            <span className={`dot dot-${status(condition).tone}`} />
+            <span className="condition-text">
+              <span className="condition-name">{fullName(condition, checks)}</span>
               <span className="condition-sub">{status(condition).text}</span>
             </span>
             <button
               type="button"
               className="square ghost"
-              aria-label={`Remove ${CONDITION_NAME[condition]} signed in`}
+              aria-label={`Remove ${fullName(condition, checks)}`}
               onClick={() => onToggle(condition, false)}
             >
               <Icon name="close" size={13} />
@@ -510,26 +499,29 @@ function ConditionsCard({
         ))}
       </div>
       <p className="hint">
-        A run waits until all of these are met, checking every 30 seconds. Add Google Cloud for a
-        job that reads BigQuery or Cloud Logging.
+        A run waits until all of these are met, checking every 30 seconds. Make your own, from a
+        command, on the Conditions page.
       </p>
       {open && (
         <div role="menu" aria-label="Conditions" className="picker">
           <div className="lbl picker-title">Conditions</div>
-          <div
-            role="menuitemcheckbox"
-            aria-checked="true"
-            aria-disabled="true"
-            tabIndex={-1}
-            className="pick"
-          >
-            <Icon name="check" />
-            <span className="condition-text">
-              <span className="condition-name">Claude Code signed in</span>
-              <span className="condition-sub">On every job</span>
-            </span>
-          </div>
-          {OPTIONAL.map((condition) => {
+          {everyJob.map((condition) => (
+            <div
+              key={condition}
+              role="menuitemcheckbox"
+              aria-checked="true"
+              aria-disabled="true"
+              tabIndex={-1}
+              className="pick"
+            >
+              <Icon name="check" />
+              <span className="condition-text">
+                <span className="condition-name">{fullName(condition, checks)}</span>
+                <span className="condition-sub">On every job</span>
+              </span>
+            </div>
+          ))}
+          {optional.map((condition) => {
             const on = conditions.includes(condition)
             return (
               <button
@@ -547,9 +539,9 @@ function ConditionsCard({
                   <Icon name="check" />
                 </span>
                 <span className="condition-text">
-                  <span className="condition-name">{CONDITION_NAME[condition]} signed in</span>
-                  <span className="condition-sub">
-                    {on ? 'Added' : 'For BigQuery or Cloud Logging'}
+                  <span className="condition-name">{fullName(condition, checks)}</span>
+                  <span className={`condition-sub${isBuiltIn(condition) ? '' : ' mono'}`}>
+                    {on ? 'Added' : about(condition)}
                   </span>
                 </span>
               </button>

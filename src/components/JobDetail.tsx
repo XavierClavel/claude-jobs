@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { type Checks, conditionState } from '../conditions'
+import { type Checks, conditionState, fullName, required } from '../conditions'
 import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
 import type { Trigger } from '../domain/Trigger'
@@ -14,7 +14,7 @@ import {
   TRIGGER_LABEL,
   when,
 } from '../format'
-import { CONDITION_NAME, isRunning, required, unmetOf } from '../jobs'
+import { isRunning, unmetOf } from '../jobs'
 import { Chip, runTone } from './Chip'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
@@ -171,7 +171,7 @@ export function JobDetail({
               )}
               <dt>Starts when</dt>
               <dd className="stack">
-                {required(job).map((condition) => {
+                {required(job, checks).map((condition) => {
                   // The job's own check first: it is what its runs wait on.
                   const met = job.unmet_conditions.some((c) => c.condition === condition)
                     ? false
@@ -179,7 +179,7 @@ export function JobDetail({
                   return (
                     <span key={condition} className="inline">
                       <span className={`dot dot-${met === null ? 'muted' : met ? 'ok' : 'warn'}`} />
-                      {CONDITION_NAME[condition]} signed in
+                      {fullName(condition, checks)}
                     </span>
                   )
                 })}
