@@ -24,8 +24,9 @@ Claude Jobs** button.
 
 ## Conditions
 
-A job starts only when its conditions are met: Claude Code signed in, for every job, and Google Cloud signed in, for
-the jobs that tick it in the editor (those that read BigQuery or Cloud Logging). When one is not, the run waits instead
+A job starts only when its conditions are met: Claude Code signed in, for every job; Google Cloud signed in, for the
+jobs that tick it in the editor (those that read BigQuery or Cloud Logging); and the command conditions you add, for
+every job or the jobs that tick them. When one is not, the run waits instead
 of starting: it checks again every 30 seconds and starts as soon as they are all met, whether it came from the
 schedule, a catch-up or **Run now**. A waiting run is not in the history; its job says what it waits for, and if it is
 still waiting after 2 minutes an alert says so too. Pausing or deleting the job ends the wait.
@@ -37,7 +38,14 @@ turns away for its login anyway (the API answers 401, or an interactive session 
 window's Conditions, under the list of jobs, offer **Sign in** meanwhile, which opens Terminal on `claude auth login`.
 The **Conditions** page (**Manage**) shows each condition, whether it is met, and the jobs that use it.
 
-The last check of each condition is kept in `conditions.json`, a minute for Claude Code and 5 minutes for Google Cloud,
+A command condition is a bash command and what it has to do: exit with a given code (0 for success), or print a given
+text on stdout, all of it or within it (without the spaces and line breaks around it; the exit code does not count
+then). **Add condition** on the Conditions page makes one, and **Test** runs it before it is saved. It runs with
+`/bin/bash -c`, the PATH of the job it is checked for, and its HOME and USER, and has 20 seconds to finish. Its hint,
+such as "Connect to the VPN", is what a job waiting for it says, with what the command did. They are kept in
+`command_conditions.json`; deleting one takes it off the jobs that ticked it.
+
+The last check of each condition is kept in `conditions.json`, 5 minutes for Google Cloud and a minute for the others,
 for the window and `claude-jobs status`; a waiting run always checks again.
 
 ## Requirements

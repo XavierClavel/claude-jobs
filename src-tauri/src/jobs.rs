@@ -1,6 +1,6 @@
 //! Jobs: a prompt, when to run it and how. Stored in `~/.claude-jobs/jobs.json`.
 
-use crate::conditions::Condition;
+use crate::conditions::CLAUDE;
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
@@ -48,9 +48,10 @@ pub struct Job {
     /// Start Claude with `--chrome` for the Claude in Chrome tools: `claude -p` does not load them otherwise.
     #[serde(default)]
     pub chrome: bool,
-    /// What the job needs before it starts besides Claude Code signed in, which every job needs: see `conditions`.
+    /// What the job needs before it starts besides Claude Code signed in, which every job needs: `gcloud`, or a
+    /// command condition's id. See `conditions`.
     #[serde(default)]
-    pub conditions: Vec<Condition>,
+    pub conditions: Vec<String>,
 }
 
 fn default_timeout() -> u32 {
@@ -213,7 +214,7 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
         errors.push("A job runs on days of the week or days of the month, not both.".to_string());
     }
     // Every job needs Claude Code: the list keeps only what a job asks for on top.
-    job.conditions.retain(|c| *c != Condition::Claude);
+    job.conditions.retain(|c| c != CLAUDE);
     job.conditions.sort_unstable();
     job.conditions.dedup();
     // Only a day after the 28th can be missing from a month.
@@ -341,8 +342,8 @@ mod tests {
     #[test]
     fn validate_keeps_only_the_conditions_a_job_adds() {
         let mut input = job("gcloud");
-        input.conditions = vec![Condition::Gcloud, Condition::Claude, Condition::Gcloud];
-        assert_eq!(validate(input, &[], None).expect("valid").conditions, vec![Condition::Gcloud]);
+        input.conditions = vec!["gcloud".into(), "claude".into(), "gcloud".into()];
+        assert_eq!(validate(input, &[], None).expect("valid").conditions, vec!["gcloud".to_string()]);
     }
 
     #[test]

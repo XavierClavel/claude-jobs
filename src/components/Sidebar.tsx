@@ -1,13 +1,21 @@
-import { type CheckActions, type Checks, conditionState, shownConditions } from '../conditions'
+import {
+  type CheckActions,
+  type Checks,
+  canSignIn,
+  conditionState,
+  shortName,
+  shownConditions,
+  waitsFor,
+} from '../conditions'
 import type { JobView } from '../domain/JobView'
 import { day, midSentence, STATUS_LABEL, scheduleShort } from '../format'
-import { CONDITION_NAME, failed, isRunning, jobTone, unmetOf, waitsFor } from '../jobs'
+import { failed, isRunning, jobTone, unmetOf } from '../jobs'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 import { UpdateCheck } from './UpdateCheck'
 
 // What a job is doing, in the line under its name.
-export function JobLine({ job }: { job: JobView }) {
+export function JobLine({ job, checks }: { job: JobView; checks: Checks }) {
   const last = job.last_run
   if (last && isRunning(job))
     return (
@@ -16,11 +24,11 @@ export function JobLine({ job }: { job: JobView }) {
       </>
     )
   const unmet = unmetOf(job)
-  if (job.waiting) return <>Waiting for {waitsFor(unmet) || 'its conditions'}</>
+  if (job.waiting) return <>Waiting for {waitsFor(unmet, checks) || 'its conditions'}</>
   if (!job.enabled) return <>Paused</>
   if (!job.loaded) return <>Not loaded in launchd</>
   const schedule = scheduleShort(job)
-  if (unmet.length) return <>{`${schedule} · waits for ${waitsFor(unmet)}`}</>
+  if (unmet.length) return <>{`${schedule} · waits for ${waitsFor(unmet, checks)}`}</>
   if (last && failed(last.status))
     return <>{`${schedule} · last run ${STATUS_LABEL[last.status].toLowerCase()}`}</>
   if (!job.next_run) return <>{schedule}</>
@@ -86,7 +94,7 @@ export function Sidebar({
             <span className="side-row-text">
               <span className="side-row-name">{job.name}</span>
               <span className="side-row-sub">
-                <JobLine job={job} />
+                <JobLine job={job} checks={checks} />
               </span>
             </span>
           </button>
@@ -109,15 +117,14 @@ export function Sidebar({
         </div>
         {shownConditions(checks, jobs ?? []).map((condition) => {
           const state = conditionState(condition, checks)
-          const canSignIn =
-            state.met === false && !(condition === 'gcloud' && !checks.gcloud?.installed)
+          const signIn = state.met === false && canSignIn(condition, checks)
           return (
             <div key={condition} className="side-condition">
               <span
                 className={`dot dot-${state.met === null ? 'muted' : state.met ? 'ok' : 'warn'}`}
               />
-              <span className="side-condition-name">{CONDITION_NAME[condition]}</span>
-              {canSignIn && !conditionsOpen ? (
+              <span className="side-condition-name">{shortName(condition, checks)}</span>
+              {signIn && !conditionsOpen ? (
                 <button
                   type="button"
                   className="small"

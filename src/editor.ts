@@ -1,4 +1,3 @@
-import type { Condition } from './domain/Condition'
 import type { Defaults } from './domain/Defaults'
 import type { Job } from './domain/Job'
 import { clock } from './format'
@@ -26,7 +25,7 @@ export type Draft = {
   interactive: boolean
   chrome: boolean
   // What the job needs on top of Claude Code signed in, which every job needs.
-  conditions: Condition[]
+  conditions: string[]
 }
 
 export function toDraft(job: Job | null, defaults: Defaults | null): Draft {

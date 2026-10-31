@@ -9,6 +9,7 @@ import { Sidebar } from './components/Sidebar'
 import { UpdateBar } from './components/UpdateBar'
 import type { CheckActions, Checks } from './conditions'
 import type { AppUpdate } from './domain/AppUpdate'
+import type { CommandConditionView } from './domain/CommandConditionView'
 import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
@@ -30,6 +31,7 @@ export function App() {
   const [banner, setBanner] = useState<string[]>([])
   const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
   const [claude, setClaude] = useState<ConditionStatus | null>(null)
+  const [commands, setCommands] = useState<CommandConditionView[]>([])
   const [signingIn, setSigningIn] = useState(false)
   const [update, setUpdate] = useState<AppUpdate | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -61,6 +63,8 @@ export function App() {
       Promise.all([
         api.gcloudStatus().then(setGcloud, () => setGcloud(null)),
         api.claudeStatus().then(setClaude, () => setClaude(null)),
+        // A file that does not parse is said, not taken for no conditions.
+        api.listConditions().then(setCommands, (e) => setBanner(errorsOf(e))),
       ]).then(refresh),
     [refresh],
   )
@@ -111,7 +115,7 @@ export function App() {
     setTimeout(refresh, delay)
   }
 
-  const checks: Checks = { claude, gcloud, signingIn }
+  const checks: Checks = { claude, gcloud, signingIn, commands }
   const actions: CheckActions = {
     onCheck: checkConditions,
     onSignIn: (condition) => {

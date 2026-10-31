@@ -1,4 +1,5 @@
 import type { Checks } from '../conditions'
+import type { CommandConditionView } from '../domain/CommandConditionView'
 import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
 
@@ -60,6 +61,7 @@ export const signedIn: Checks = {
   claude: { condition: 'claude', problem: null },
   gcloud: { installed: true, signed_in: true, account: 'me@example.com' },
   signingIn: false,
+  commands: [],
 }
 
 export const gcloudOut: Checks = {
@@ -70,4 +72,18 @@ export const gcloudOut: Checks = {
 export const expired = {
   condition: 'claude' as const,
   problem: "Claude Code's login expired: run claude, then /login.",
+}
+
+export function command(overrides: Partial<CommandConditionView> = {}): CommandConditionView {
+  return {
+    id: 'vpn',
+    name: 'VPN connected',
+    command: 'scutil --nc status Work | head -1',
+    expect: { kind: 'stdout', text: 'Connected', contains: false },
+    every_job: false,
+    hint: 'Connect to the VPN',
+    problem: null,
+    checked_at: '2026-10-31T09:00:00Z',
+    ...overrides,
+  }
 }

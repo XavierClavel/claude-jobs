@@ -1,6 +1,6 @@
 //! What the window can ask for. Every write goes through one lock, so two saves cannot interleave.
 
-use crate::conditions::{self, Condition, ConditionStatus};
+use crate::conditions::{self, CommandCheck, CommandCondition, ConditionStatus, CLAUDE};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
@@ -31,6 +31,17 @@ pub struct JobView {
     pub waiting: Option<Waiting>,
     /// The conditions the job needs that are not met, from a check at most a few minutes old.
     pub unmet_conditions: Vec<ConditionStatus>,
+}
+
+/// A command condition, with its last check.
+#[derive(Serialize, TS, Clone, Debug)]
+#[ts(export)]
+pub struct CommandConditionView {
+    #[serde(flatten)]
+    pub condition: CommandCondition,
+    /// Why it is not met; none when it is.
+    pub problem: Option<String>,
+    pub checked_at: String,
 }
 
 #[derive(Serialize, TS, Clone, Debug)]
@@ -88,6 +99,12 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
     let _guard = lock();
     let mut all = jobs::load()?;
     let job = jobs::validate(job, &all, editing.as_deref())?;
+    let commands = conditions::load_commands()?;
+    let unknown: Vec<&str> =
+        job.conditions.iter().map(String::as_str).filter(|c| !conditions::is_known(c, &commands)).collect();
+    if !unknown.is_empty() {
+        return Err(format!("No condition called {}.", unknown.join(", ")).into());
+    }
     if job.interactive {
         // Here rather than at the first run, so a folder Claude Code cannot trust shows in the editor.
         trust::ensure(&job.cwd)?;
@@ -229,8 +246,70 @@ fn claude_job() -> Reply<Option<Job>> {
 pub fn claude_status() -> Reply<ConditionStatus> {
     Ok(match claude_job()? {
         Some(job) => conditions::claude_now(&job),
-        None => ConditionStatus { condition: Condition::Claude, problem: None },
+        None => ConditionStatus { condition: CLAUDE.to_string(), problem: None },
     })
+}
+
+/// The PATH a command condition is checked with outside a run: the jobs', which they normally share.
+fn check_path() -> Reply<String> {
+    Ok(claude_job()?.map(|job| job.path).unwrap_or_else(|| jobs::defaults().path))
+}
+
+/// The command conditions, each with its last check: a recent one, or one made now.
+#[tauri::command(async)]
+pub fn list_conditions() -> Reply<Vec<CommandConditionView>> {
+    let path = check_path()?;
+    Ok(conditions::load_commands()?
+        .into_iter()
+        .map(|condition| {
+            let (problem, checked_at) = conditions::last_check(&condition.id).unwrap_or_else(|| {
+                let (found, at) = conditions::check_command(&condition, &path, true);
+                (found.problem, at)
+            });
+            CommandConditionView { condition, problem, checked_at }
+        })
+        .collect())
+}
+
+#[tauri::command(async)]
+pub fn save_condition(condition: CommandCondition, editing: Option<String>) -> Reply<CommandCondition> {
+    let _guard = lock();
+    let mut all = conditions::load_commands()?;
+    let condition = conditions::validate_command(condition, &all, editing.as_deref())?;
+    match all.iter_mut().find(|c| c.id == condition.id) {
+        Some(existing) => *existing = condition.clone(),
+        None => all.push(condition.clone()),
+    }
+    conditions::save_commands(&all)?;
+    // Checked now, so the window and the jobs show it at once, rather than an earlier version's check.
+    conditions::check_command(&condition, &check_path()?, true);
+    Ok(condition)
+}
+
+/// Deletes a command condition, and takes it off the jobs that ticked it.
+#[tauri::command(async)]
+pub fn delete_condition(id: String) -> Reply<()> {
+    let _guard = lock();
+    let all = conditions::load_commands()?;
+    if !all.iter().any(|c| c.id == id) {
+        return Err(format!("No condition called {id}.").into());
+    }
+    let mut jobs = jobs::load()?;
+    if jobs.iter().any(|j| j.conditions.contains(&id)) {
+        for job in &mut jobs {
+            job.conditions.retain(|c| *c != id);
+        }
+        jobs::save(&jobs)?;
+    }
+    conditions::save_commands(&all.into_iter().filter(|c| c.id != id).collect::<Vec<_>>())?;
+    Ok(())
+}
+
+/// Runs a command condition now, saved or not, and says what its command did. A saved one keeps the check.
+#[tauri::command(async)]
+pub fn check_condition(condition: CommandCondition) -> Reply<CommandCheck> {
+    let saved = conditions::load_commands()?.contains(&condition);
+    Ok(conditions::check_command(&condition, &check_path()?, saved).0)
 }
 
 /// Opens Terminal on `claude auth login`, with the environment the runs get, so the login is the one they use.
