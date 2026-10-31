@@ -3,12 +3,40 @@ import { api, errorsOf } from '../api'
 import type { JobView } from '../domain/JobView'
 import type { RunDetail } from '../domain/RunDetail'
 import type { RunRecord } from '../domain/RunRecord'
-import { cost, dateTime, duration, STATUS_LABEL, TRIGGER_LABEL } from '../format'
+import type { Trigger } from '../domain/Trigger'
+import {
+  cost,
+  duration,
+  STATUS_LABEL,
+  shortDate,
+  stopwatch,
+  TRIGGER_LABEL,
+  tally,
+  when,
+} from '../format'
+import { failed } from '../jobs'
 import { Chip, runTone } from './Chip'
 import { Elapsed } from './Elapsed'
+import { Icon } from './Icon'
 
-export function History({ job, onClose }: { job: JobView; onClose: () => void }) {
+const FROM: Record<Trigger, string> = {
+  schedule: 'from the schedule',
+  manual: 'started by hand',
+  'catch-up': 'caught up at login',
+}
+
+// The job's runs, newest first, beside the one picked: the run asked for, or else the newest.
+export function History({
+  job,
+  run,
+  onBack,
+}: {
+  job: JobView
+  run: string | null
+  onBack: () => void
+}) {
   const [runs, setRuns] = useState<RunRecord[] | null>(null)
+  const [picked, setPicked] = useState<string | null>(run)
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [errors, setErrors] = useState<string[]>([])
 
@@ -31,128 +59,177 @@ export function History({ job, onClose }: { job: JobView; onClose: () => void })
     return () => clearInterval(timer)
   }, [running, load])
 
-  async function open(run: RunRecord) {
-    try {
-      setDetail(await api.getRun(job.id, run.id))
-    } catch (e) {
-      setErrors(errorsOf(e))
+  const shown = picked ?? runs?.[0]?.id ?? null
+  // The record in the list, which changes as a run ends: its detail is fetched again then.
+  const record = runs?.find((r) => r.id === shown)
+  useEffect(() => {
+    if (!shown || !record) return
+    let latest = true
+    api.getRun(job.id, shown).then(
+      (found) => latest && setDetail(found),
+      (e) => latest && setErrors(errorsOf(e)),
+    )
+    return () => {
+      latest = false
     }
-  }
+  }, [job.id, shown, record])
 
   return (
-    <div className="dlg">
-      <div className="foot">
-        <h2 id="history-title">{job.name}: history</h2>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </div>
+    <div className="view">
+      <header className="view-head bordered">
+        <div className="view-title row-title">
+          <button
+            type="button"
+            className="square"
+            aria-label={`Back to ${job.name}`}
+            title={`Back to ${job.name}`}
+            onClick={onBack}
+          >
+            <Icon name="back" />
+          </button>
+          <div className="view-title">
+            <h1 id="history-title">{job.name} · history</h1>
+            {runs && runs.length > 0 && <span className="muted">{summary(runs)}</span>}
+          </div>
+        </div>
+      </header>
       {errors.length > 0 && (
-        <p className="errors" role="alert">
+        <p className="errors pane-errors" role="alert">
           {errors.join(' ')}
         </p>
       )}
-      {runs && runs.length === 0 && <p className="muted">No runs yet.</p>}
+      {runs && runs.length === 0 && <p className="muted view-empty">No runs yet.</p>}
       {runs && runs.length > 0 && (
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Started</th>
-                <th>Trigger</th>
-                <th>Status</th>
-                <th className="num">Duration</th>
-                <th className="num">Turns</th>
-                <th className="num">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((r) => (
-                <tr
-                  key={r.id}
-                  className={detail?.id === r.id ? 'selected' : undefined}
-                  onClick={() => open(r)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') open(r)
-                  }}
-                  tabIndex={0}
-                >
-                  <td>{dateTime(r.started_at)}</td>
-                  <td className="muted">{TRIGGER_LABEL[r.trigger]}</td>
-                  <td>
-                    <Chip tone={runTone(r.status)}>{STATUS_LABEL[r.status]}</Chip>
-                  </td>
-                  <td className="num">
-                    {r.status === 'running' ? (
-                      <Elapsed since={r.started_at} />
-                    ) : (
-                      duration(r.duration_s)
-                    )}
-                  </td>
-                  <td className="num">{r.num_turns ?? '—'}</td>
-                  <td className="num">{cost(r.cost_usd)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="history">
+          <nav className="history-runs" aria-label="Runs">
+            {runs.map((r) => (
+              <button
+                type="button"
+                key={r.id}
+                className={`run-row${r.id === shown ? ' selected' : ''}`}
+                aria-current={r.id === shown ? 'true' : undefined}
+                onClick={() => setPicked(r.id)}
+              >
+                <span className="run-row-when">
+                  <span className={`dot dot-${runTone(r.status)}`} />
+                  {when(r.started_at)}
+                </span>
+                <span className="run-row-side">
+                  {r.status === 'running' ? (
+                    <Elapsed since={r.started_at} />
+                  ) : (
+                    duration(r.duration_s)
+                  )}
+                </span>
+                <span className="run-row-meta">
+                  {TRIGGER_LABEL[r.trigger]} ·{' '}
+                  {r.status === 'ok' ? 'OK' : STATUS_LABEL[r.status].toLowerCase()}
+                  {r.num_turns !== null &&
+                    ` · ${r.num_turns} ${r.num_turns === 1 ? 'turn' : 'turns'}`}
+                </span>
+                <span className="run-row-side">{cost(r.cost_usd)}</span>
+              </button>
+            ))}
+          </nav>
+          {detail && detail.id === shown ? (
+            <Run detail={detail} timeout={job.timeout_minutes} />
+          ) : (
+            <div />
+          )}
         </div>
       )}
-      {detail && <Run detail={detail} />}
     </div>
   )
 }
 
-function Run({ detail }: { detail: RunDetail }) {
+// "42 runs since 12 Sep · 39 OK · 2 failed · 1 timed out · $31.20 in all"
+export function summary(runs: RunRecord[]): string {
+  const oldest = runs[runs.length - 1]
+  const since = oldest ? shortDate(oldest.started_at) : ''
+  const parts = [
+    `${runs.length} ${runs.length === 1 ? 'run' : 'runs'} since ${since}`,
+    ...tally(runs.map((r) => r.status)),
+  ]
+  const spent = runs.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0)
+  if (spent) parts.push(`${cost(spent)} in all`)
+  return parts.join(' · ')
+}
+
+function Run({ detail, timeout }: { detail: RunDetail; timeout: number }) {
   const [copied, setCopied] = useState(false)
   const resume = detail.session_id ? `claude --resume ${detail.session_id}` : null
   const errors = [detail.error, detail.err].filter(Boolean).join('\n\n').trim()
+  const running = detail.status === 'running'
   return (
-    <div className="dlg nested">
-      <h3>Run of {dateTime(detail.started_at)}</h3>
-      <div className="lines muted">
-        <div>
-          Status: {STATUS_LABEL[detail.status]}
-          {detail.exit_code !== null ? ` (exit code ${detail.exit_code})` : ''}
+    <article className="run" aria-label={`Run of ${when(detail.started_at)}`}>
+      <div className="run-head">
+        <div className="inline">
+          <h2>{when(detail.started_at)}</h2>
+          <Chip tone={runTone(detail.status)}>{STATUS_LABEL[detail.status]}</Chip>
+          {detail.interactive && <Chip tone="muted">Interactive</Chip>}
         </div>
-        {detail.interactive && (
-          <div>Interactive session: the result and cost come from its transcript.</div>
-        )}
-        <div>
-          Duration:{' '}
-          {detail.status === 'running' ? (
-            <Elapsed since={detail.started_at} />
-          ) : (
-            duration(detail.duration_s)
-          )}{' '}
-          · turns: {detail.num_turns ?? '—'} · cost: {cost(detail.cost_usd)}
+        <span className="muted small-text">
+          {detail.exit_code !== null ? `exit code ${detail.exit_code} · ` : ''}
+          {FROM[detail.trigger]}
+        </span>
+      </div>
+      <div className="stats">
+        <div className="stat">
+          <span className="stat-value">
+            {running ? (
+              <Elapsed since={detail.started_at} />
+            ) : detail.duration_s !== null ? (
+              stopwatch(detail.duration_s)
+            ) : (
+              '—'
+            )}
+          </span>
+          <span className="stat-key">
+            {detail.status === 'timeout' ? `Duration · hit the ${timeout} min timeout` : 'Duration'}
+          </span>
         </div>
-        {resume && (
-          <div>
-            Full conversation: <span className="mono">{resume}</span>{' '}
-            <button
-              type="button"
-              onClick={() =>
-                navigator.clipboard.writeText(resume).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        )}
+        <div className="stat">
+          <span className="stat-value">{detail.num_turns ?? '—'}</span>
+          <span className="stat-key">Turns</span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">{cost(detail.cost_usd)}</span>
+          <span className="stat-key">Cost</span>
+        </div>
       </div>
-      <div>
-        <div className="muted">Result</div>
-        <pre>{detail.result || (detail.status === 'running' ? 'Still running…' : '(empty)')}</pre>
-      </div>
-      {errors && (
-        <div>
-          <div className="muted">Errors</div>
-          <pre>{errors}</pre>
+      {detail.interactive && (
+        <p className="muted small-text">
+          Interactive session: the result and cost come from its transcript.
+        </p>
+      )}
+      {resume && (
+        <div className="resume">
+          <span className="muted">Full conversation</span>
+          <code className="mono">{resume}</code>
+          <button
+            type="button"
+            className="small"
+            onClick={() =>
+              navigator.clipboard.writeText(resume).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
         </div>
       )}
-    </div>
+      <section className="stack">
+        <div className="lbl">Result</div>
+        <pre>{detail.result || (running ? 'Still running…' : '(empty)')}</pre>
+      </section>
+      {errors && (
+        <section className="stack">
+          <div className={`lbl${failed(detail.status) ? ' bad' : ''}`}>Errors</div>
+          <pre className={failed(detail.status) ? 'pre-bad' : undefined}>{errors}</pre>
+        </section>
+      )}
+    </article>
   )
 }

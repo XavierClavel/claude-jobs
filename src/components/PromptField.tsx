@@ -72,7 +72,7 @@ export function PromptField({
 
   return (
     <div className="prompt">
-      <label>
+      <label className="field">
         Prompt
         <textarea
           ref={ref}

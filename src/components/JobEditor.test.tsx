@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
+import { gcloudOut, signedIn } from '../test/fixtures'
 import { JobEditor } from './JobEditor'
 
 vi.mock('../api', () => ({
@@ -12,7 +13,16 @@ const defaults = { claude: '/bin/claude', path: '/usr/bin:/bin', cwd: '/Users/me
 
 async function newJob() {
   const onSaved = vi.fn()
-  render(<JobEditor job={null} defaults={defaults} onClose={() => {}} onSaved={onSaved} />)
+  render(
+    <JobEditor
+      job={null}
+      defaults={defaults}
+      checks={signedIn}
+      onClose={() => {}}
+      onSaved={onSaved}
+      onDeleted={() => {}}
+    />,
+  )
   await userEvent.type(screen.getByLabelText('Name'), 'Monthly report')
   await userEvent.type(screen.getByLabelText('Prompt'), '/report')
   return onSaved
@@ -87,6 +97,42 @@ describe('JobEditor', () => {
   })
 })
 
+describe('JobEditor conditions', () => {
+  beforeEach(() => vi.mocked(api.saveJob).mockReset())
+
+  it('adds Google Cloud from the picker, says it is not met, and removes it', async () => {
+    render(
+      <JobEditor
+        job={null}
+        defaults={defaults}
+        checks={gcloudOut}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    )
+    expect(screen.getByText(/Required by every job · Met/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add condition' }))
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Google Cloud/ }))
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByText(/Not met right now/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Google Cloud signed in' }))
+    expect(screen.queryByText(/Not met right now/)).not.toBeInTheDocument()
+  })
+
+  it('saves the conditions picked', async () => {
+    const onSaved = await newJob()
+    await userEvent.click(screen.getByRole('button', { name: 'Add condition' }))
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Google Cloud/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ conditions: ['gcloud'] }),
+      null,
+    )
+    expect(onSaved).toHaveBeenCalledOnce()
+  })
+})
+
 describe('JobEditor prompt', () => {
   const skills = [
     { name: 'photobook-monitor', description: 'Refresh the photobook monitor', argument_hint: '' },
@@ -96,7 +142,16 @@ describe('JobEditor prompt', () => {
 
   async function openEditor() {
     vi.mocked(api.listSkills).mockClear().mockResolvedValue(skills)
-    render(<JobEditor job={null} defaults={defaults} onClose={() => {}} onSaved={() => {}} />)
+    render(
+      <JobEditor
+        job={null}
+        defaults={defaults}
+        checks={signedIn}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    )
     await waitFor(() =>
       expect(api.listSkills).toHaveBeenCalledWith('/bin/claude', '/usr/bin:/bin', '/Users/me'),
     )
