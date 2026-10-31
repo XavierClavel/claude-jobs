@@ -1,4 +1,16 @@
-import { ago, cost, duration, ordinal, scheduleText, slug, stopwatch } from './format'
+import {
+  ago,
+  cost,
+  day,
+  duration,
+  ordinal,
+  scheduleShort,
+  scheduleText,
+  slug,
+  stopwatch,
+  tally,
+  when,
+} from './format'
 
 describe('scheduleText', () => {
   it('says every day when no day is picked', () => {
@@ -86,5 +98,48 @@ describe('slug', () => {
   it('turns a name into an id', () => {
     expect(slug('Photobook monitor')).toBe('photobook-monitor')
     expect(slug('  Weekly: Sales report! ')).toBe('weekly-sales-report')
+  })
+})
+
+describe('scheduleShort', () => {
+  it('says the schedule in a few words', () => {
+    expect(scheduleShort({ hour: 6, minute: 0, weekdays: [], month_days: [] })).toBe('Daily 06:00')
+    expect(scheduleShort({ hour: 9, minute: 0, weekdays: [1, 3, 5], month_days: [] })).toBe(
+      'Mon, Wed, Fri 09:00',
+    )
+    expect(scheduleShort({ hour: 8, minute: 0, weekdays: [], month_days: [1, 15] })).toBe(
+      'Monthly 1st, 15th 08:00',
+    )
+  })
+})
+
+describe('day and when', () => {
+  // Saturday 31 October 2026, 10:00 local time.
+  const now = new Date(2026, 9, 31, 10, 0).getTime()
+  const at = (d: number, h = 7, m = 30) => new Date(2026, 9, d, h, m).toISOString()
+
+  it('names the days next to today', () => {
+    expect(when(at(31), now)).toBe('Today 07:30')
+    expect(when(at(30, 23, 5), now)).toBe('Yesterday 23:05')
+    expect(day(at(32), now)).toBe('Tomorrow')
+  })
+
+  it('names the weekday within the coming week, and the date otherwise', () => {
+    expect(day(at(33), now)).toBe('Mon')
+    expect(when(at(29, 9, 12), now)).toBe('Thu 29 Oct 09:12')
+  })
+
+  it('has a dash for no time', () => {
+    expect(when(null, now)).toBe('—')
+  })
+})
+
+describe('tally', () => {
+  it('counts how the runs went, leaving out those still going', () => {
+    expect(tally(['ok', 'ok', 'timeout', 'running', 'failed'])).toEqual([
+      '2 OK',
+      '1 failed',
+      '1 timed out',
+    ])
   })
 })

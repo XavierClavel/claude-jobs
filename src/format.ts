@@ -29,6 +29,14 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   interrupted: 'Interrupted',
 }
 
+// How runs went, counted: ["39 OK", "2 failed", "1 timed out"]. A run still going is left out.
+export function tally(statuses: RunStatus[]): string[] {
+  return (['ok', 'failed', 'timeout', 'interrupted'] as const).flatMap((status) => {
+    const n = statuses.filter((s) => s === status).length
+    return n ? [`${n} ${status === 'ok' ? 'OK' : STATUS_LABEL[status].toLowerCase()}`] : []
+  })
+}
+
 export const TRIGGER_LABEL: Record<Trigger, string> = {
   schedule: 'Schedule',
   manual: 'By hand',
@@ -52,6 +60,55 @@ export function scheduleText(
   if (!job.weekdays.length) return `Every day at ${time}`
   return `${job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')} at ${time}`
 }
+
+// The schedule in a few words, for the list of jobs: "Daily 06:00", "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00".
+export function scheduleShort(
+  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'>,
+): string {
+  const time = clock(job.hour, job.minute)
+  if (job.month_days.length) return `Monthly ${job.month_days.map(ordinal).join(', ')} ${time}`
+  if (!job.weekdays.length) return `Daily ${time}`
+  return `${job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')} ${time}`
+}
+
+const midnight = (at: Date) => new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime()
+
+// Whole days from today to the day of `at`: -1 yesterday, 0 today, 1 tomorrow.
+function daysFrom(at: Date, now: number): number {
+  return Math.round((midnight(at) - midnight(new Date(now))) / 86400000)
+}
+
+// The day of a time near now, as the list of runs says it: "Today", "Yesterday", "Tomorrow", "Mon" within the coming
+// week, "Thu 29 Oct" otherwise.
+export function day(iso: string, now: number = Date.now()): string {
+  const at = new Date(iso)
+  const days = daysFrom(at, now)
+  if (days === 0) return 'Today'
+  if (days === -1) return 'Yesterday'
+  if (days === 1) return 'Tomorrow'
+  const weekday = DAYS[(at.getDay() + 6) % 7] ?? ''
+  if (days > 1 && days < 7) return weekday
+  return `${weekday} ${shortDate(iso)}`
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// "29 Oct"
+export function shortDate(iso: string): string {
+  const at = new Date(iso)
+  return `${at.getDate()} ${MONTHS[at.getMonth()]}`
+}
+
+// A time near now with its day: "Today 07:30", "Thu 29 Oct 09:12".
+export function when(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return '—'
+  const at = new Date(iso)
+  return `${day(iso, now)} ${clock(at.getHours(), at.getMinutes())}`
+}
+
+// The same in the middle of a sentence: "next tomorrow 07:30", "waiting since yesterday 18:00".
+export const midSentence = (text: string) =>
+  text.replace(/^(Today|Yesterday|Tomorrow)/, (d) => d.toLowerCase())
 
 export function dateTime(iso: string | null | undefined): string {
   if (!iso) return '—'

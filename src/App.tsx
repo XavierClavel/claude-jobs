@@ -1,27 +1,32 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorsOf } from './api'
-import { ClaudeBar } from './components/ClaudeBar'
-import { Dialog } from './components/Dialog'
-import { GcloudBar } from './components/GcloudBar'
+import { Conditions } from './components/Conditions'
 import { History } from './components/History'
-import { JobCard } from './components/JobCard'
+import { JobDetail } from './components/JobDetail'
 import { JobEditor } from './components/JobEditor'
+import { Overview } from './components/Overview'
+import { Sidebar } from './components/Sidebar'
 import { UpdateBar } from './components/UpdateBar'
-import { UpdateCheck } from './components/UpdateCheck'
+import type { CheckActions, Checks } from './conditions'
 import type { AppUpdate } from './domain/AppUpdate'
 import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { JobView } from './domain/JobView'
 
-type Editing = { job: JobView | null } | null
+// What the pane shows beside the list of jobs.
+type View =
+  | { kind: 'overview' }
+  | { kind: 'job'; id: string }
+  | { kind: 'edit'; id: string | null }
+  | { kind: 'history'; id: string; run: string | null }
+  | { kind: 'conditions' }
 
 export function App() {
   const [jobs, setJobs] = useState<JobView[] | null>(null)
   const [defaults, setDefaults] = useState<Defaults | null>(null)
   const [version, setVersion] = useState<string | null>(null)
-  const [editing, setEditing] = useState<Editing>(null)
-  const [history, setHistory] = useState<JobView | null>(null)
+  const [view, setView] = useState<View>({ kind: 'overview' })
   const [banner, setBanner] = useState<string[]>([])
   const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
   const [claude, setClaude] = useState<ConditionStatus | null>(null)
@@ -50,22 +55,26 @@ export function App() {
     return () => clearInterval(timer)
   }, [refresh, busy])
 
-  // Checked again when the window comes back, which is when a sign-in in Terminal has just finished. The jobs follow:
-  // the conditions they show come from these checks.
-  useEffect(() => {
-    const check = () =>
+  // The jobs follow the conditions: what they show comes from these checks.
+  const checkConditions = useCallback(
+    () =>
       Promise.all([
         api.gcloudStatus().then(setGcloud, () => setGcloud(null)),
         api.claudeStatus().then(setClaude, () => setClaude(null)),
-      ]).then(refresh)
-    check()
-    const timer = setInterval(check, 300000)
-    window.addEventListener('focus', check)
+      ]).then(refresh),
+    [refresh],
+  )
+
+  // Checked again when the window comes back, which is when a sign-in in Terminal has just finished.
+  useEffect(() => {
+    checkConditions()
+    const timer = setInterval(checkConditions, 300000)
+    window.addEventListener('focus', checkConditions)
     return () => {
       clearInterval(timer)
-      window.removeEventListener('focus', check)
+      window.removeEventListener('focus', checkConditions)
     }
-  }, [refresh])
+  }, [checkConditions])
 
   // The window may stay open for days. A failed check (offline, no release yet) keeps what the last one found.
   useEffect(() => {
@@ -102,88 +111,120 @@ export function App() {
     setTimeout(refresh, delay)
   }
 
+  const checks: Checks = { claude, gcloud, signingIn }
+  const actions: CheckActions = {
+    onCheck: checkConditions,
+    onSignIn: (condition) => {
+      if (condition === 'claude') {
+        act(api.claudeSignIn)
+        return
+      }
+      setSigningIn(true)
+      api
+        .gcloudSignIn()
+        .then(setGcloud, (e) => setBanner(errorsOf(e)))
+        .finally(() => {
+          setSigningIn(false)
+          refresh()
+        })
+    },
+  }
+
+  // A job deleted from elsewhere (the command line) leaves the pane on the overview.
+  const job = 'id' in view && view.id !== null ? jobs?.find((j) => j.id === view.id) : undefined
+  const missing = jobs !== null && 'id' in view && view.id !== null && !job
+  useEffect(() => {
+    if (missing) setView({ kind: 'overview' })
+  }, [missing])
+
+  const select = (id: string) => setView({ kind: 'job', id })
+
   return (
-    <>
-      <header className="top">
-        <div className="title">
-          <h1>Claude Jobs {version && <span className="version muted">{version}</span>}</h1>
-          <UpdateCheck onCheck={checkUpdateNow} />
-        </div>
-        <button type="button" className="primary" onClick={() => setEditing({ job: null })}>
-          New job
-        </button>
-      </header>
-      <UpdateBar
-        update={update}
-        installing={installing}
-        onInstall={() => {
-          setInstalling(true)
-          api
-            .installUpdate()
-            .catch((e) => setBanner(errorsOf(e)))
-            .finally(() => setInstalling(false))
-        }}
+    <div className="shell">
+      {/* The window has no title bar: this strip moves it, over the traffic lights' row. */}
+      <div className="drag" data-tauri-drag-region />
+      <Sidebar
+        version={version}
+        jobs={jobs}
+        selected={job?.id ?? null}
+        conditionsOpen={view.kind === 'conditions'}
+        editing={view.kind === 'edit'}
+        checks={checks}
+        actions={actions}
+        onCheckUpdate={checkUpdateNow}
+        onNew={() => setView({ kind: 'edit', id: null })}
+        onSelect={(id) =>
+          setView(
+            view.kind === 'job' && view.id === id ? { kind: 'overview' } : { kind: 'job', id },
+          )
+        }
+        onConditions={() => setView({ kind: 'conditions' })}
+        onOverview={() => setView({ kind: 'overview' })}
       />
-      <ClaudeBar status={claude} onSignIn={() => act(api.claudeSignIn)} />
-      <GcloudBar
-        status={gcloud}
-        signingIn={signingIn}
-        onSignIn={() => {
-          setSigningIn(true)
-          api
-            .gcloudSignIn()
-            .then(setGcloud, (e) => setBanner(errorsOf(e)))
-            .finally(() => {
-              setSigningIn(false)
-              refresh()
-            })
-        }}
-      />
-      {banner.length > 0 && (
-        <p className="errors banner" role="alert">
-          {banner.join('\n')}
-        </p>
-      )}
-      <main className="jobs">
-        {jobs === null ? (
-          <p className="muted">Loading jobs…</p>
-        ) : jobs.length === 0 ? (
-          <div className="empty">
-            <p>No jobs yet.</p>
-            <p className="muted">
-              A job runs a Claude Code prompt on a schedule, like /photobook-monitor every morning.
-            </p>
-          </div>
-        ) : (
-          jobs.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              onRun={() => act(() => api.runNow(job.id), 1500)}
-              onToggle={() => act(() => api.setEnabled(job.id, !job.enabled))}
-              onEdit={() => setEditing({ job })}
-              onHistory={() => setHistory(job)}
-              onWatch={() => act(() => api.watchRun(job.id))}
-            />
-          ))
+      <main className="pane">
+        <UpdateBar
+          update={update}
+          installing={installing}
+          onInstall={() => {
+            setInstalling(true)
+            api
+              .installUpdate()
+              .catch((e) => setBanner(errorsOf(e)))
+              .finally(() => setInstalling(false))
+          }}
+        />
+        {banner.length > 0 && (
+          <p className="errors banner" role="alert">
+            {banner.join('\n')}
+          </p>
         )}
-      </main>
-      <Dialog open={editing !== null} onClose={() => setEditing(null)} labelledBy="editor-title">
-        {editing && (
+        {jobs === null ? (
+          <p className="muted view-empty">Loading jobs…</p>
+        ) : view.kind === 'edit' && (view.id === null || job) ? (
           <JobEditor
-            job={editing.job}
+            key={view.id ?? 'new'}
+            job={job ?? null}
             defaults={defaults}
-            onClose={() => setEditing(null)}
-            onSaved={() => {
-              setEditing(null)
+            checks={checks}
+            onClose={() => setView(job ? { kind: 'job', id: job.id } : { kind: 'overview' })}
+            onSaved={(saved) => {
+              setView(saved ? { kind: 'job', id: saved.id } : { kind: 'overview' })
+              refresh()
+            }}
+            onDeleted={() => {
+              setView({ kind: 'overview' })
               refresh()
             }}
           />
+        ) : view.kind === 'history' && job ? (
+          <History
+            key={`${job.id}/${view.run}`}
+            job={job}
+            run={view.run}
+            onBack={() => select(job.id)}
+          />
+        ) : view.kind === 'job' && job ? (
+          <JobDetail
+            job={job}
+            checks={checks}
+            onRun={() => act(() => api.runNow(job.id), 1500)}
+            onToggle={() => act(() => api.setEnabled(job.id, !job.enabled))}
+            onEdit={() => setView({ kind: 'edit', id: job.id })}
+            onHistory={(run) => setView({ kind: 'history', id: job.id, run: run ?? null })}
+            onWatch={() => act(() => api.watchRun(job.id))}
+          />
+        ) : view.kind === 'conditions' ? (
+          <Conditions jobs={jobs} checks={checks} actions={actions} onSelect={select} />
+        ) : (
+          <Overview
+            jobs={jobs}
+            checks={checks}
+            actions={actions}
+            onSelect={select}
+            onOpenRun={(id, run) => setView({ kind: 'history', id, run })}
+          />
         )}
-      </Dialog>
-      <Dialog open={history !== null} onClose={() => setHistory(null)} labelledBy="history-title">
-        {history && <History job={history} onClose={() => setHistory(null)} />}
-      </Dialog>
-    </>
+      </main>
+    </div>
   )
 }

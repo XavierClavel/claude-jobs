@@ -27,14 +27,15 @@ Claude Jobs** button.
 A job starts only when its conditions are met: Claude Code signed in, for every job, and Google Cloud signed in, for
 the jobs that tick it in the editor (those that read BigQuery or Cloud Logging). When one is not, the run waits instead
 of starting: it checks again every 30 seconds and starts as soon as they are all met, whether it came from the
-schedule, a catch-up or **Run now**. A waiting run is not in the history; its card says what it waits for, and if it is
+schedule, a catch-up or **Run now**. A waiting run is not in the history; its job says what it waits for, and if it is
 still waiting after 2 minutes an alert says so too. Pausing or deleting the job ends the wait.
 
 Claude Code is signed out when `claude auth status` says so, and its login has expired when the claude.ai login's
 refresh token has (read from the keychain item `Claude Code-credentials`; only that date is kept). A run Claude Code
 turns away for its login anyway (the API answers 401, or an interactive session shows "Login expired · Please run
 /login") is not recorded: it goes back to waiting until the credentials change, which signing in again does. The
-window shows a **Sign in to Claude Code** bar meanwhile, which opens Terminal on `claude auth login`.
+window's Conditions, under the list of jobs, offer **Sign in** meanwhile, which opens Terminal on `claude auth login`.
+The **Conditions** page (**Manage**) shows each condition, whether it is met, and the jobs that use it.
 
 The last check of each condition is kept in `conditions.json`, a minute for Claude Code and 5 minutes for Google Cloud,
 for the window and `claude-jobs status`; a waiting run always checks again.
@@ -165,8 +166,8 @@ error; a refused login sends it back to waiting (see Conditions).
 
 Jobs that read BigQuery or Cloud Logging fail once gcloud's credentials expire ("Reauthentication failed"). The
 window checks them at start, every 5 minutes and when it comes back to the front, by printing an access token, and
-shows a warning when they are gone. **Sign in to Google Cloud** runs `gcloud auth login --update-adc` in the
-background: the browser opens, and the bar turns green once you have signed in there (it gives up after 5 minutes).
+shows them as signed out when they are gone. **Sign in** runs `gcloud auth login --update-adc` in the
+background: the browser opens, and the condition turns green once you have signed in there (it gives up after 5 minutes).
 That refreshes the application default credentials too.
 
 ## Chrome
