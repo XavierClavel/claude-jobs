@@ -16,8 +16,9 @@ Mac is off or you are logged out.
 
 Every job makes up for that: while one is enabled, a login agent (`com.claude-jobs.app.catch-up`, calling
 `claude-jobs catch-up`) checks each job at login and starts it when its last scheduled time has passed with no run
-since, as long as that time is less than a day old. It waits up to 5 minutes for the network first. Catch-up runs show
-as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
+since, however long ago, unless the job runs again later that day: logging in at 08:30 on Monday, a job at 09:00 every
+day waits for its 09:00 run instead of catching up Sunday's. It waits up to 5 minutes for the network first. Catch-up
+runs show as **Catch-up** in the history; what the agent did is in `logs/app.catch-up.launchd.log`.
 
 A run that fails or times out puts up an alert that stays on screen until you close it, with its error and an **Open
 Claude Jobs** button.

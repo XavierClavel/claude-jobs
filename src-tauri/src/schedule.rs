@@ -1,10 +1,7 @@
 //! When a job runs next, in local time, as launchd computes it from `StartCalendarInterval`.
 
 use crate::jobs::Job;
-use chrono::{DateTime, Datelike, Days, Local, NaiveDate, TimeDelta, TimeZone};
-
-/// A catch-up more than this late is skipped: the next scheduled run is closer than the missed one.
-const CATCH_UP_WINDOW: TimeDelta = TimeDelta::hours(24);
+use chrono::{DateTime, Datelike, Days, Local, NaiveDate, TimeZone};
 
 /// How many days to look ahead or back: a job on the 31st waits 61 days from 31 March to 31 May.
 const HORIZON_DAYS: u64 = 62;
@@ -43,7 +40,9 @@ pub fn previous_run(job: &Job, now: DateTime<Local>) -> Option<DateTime<Local>> 
     (0..=HORIZON_DAYS).filter_map(|o| slot(job, now.date_naive().checked_sub_days(Days::new(o))?)).find(|t| *t <= now)
 }
 
-/// The scheduled time to catch up at login, if nothing ran since that time.
+/// The scheduled time to catch up at login, if nothing ran since that time, however long ago it was.
+///
+/// It is skipped when the job runs again later the same day: that run stands in for the missed one.
 pub fn missed_run<Tz: TimeZone>(
     job: &Job,
     now: DateTime<Local>,
@@ -54,7 +53,8 @@ pub fn missed_run<Tz: TimeZone>(
     }
     let slot = previous_run(job, now)?;
     let ran_since = last_started.is_some_and(|t| t >= slot);
-    (now - slot <= CATCH_UP_WINDOW && !ran_since).then_some(slot)
+    let runs_later_today = next_run(job, now).is_some_and(|next| next.date_naive() == now.date_naive());
+    (!ran_since && !runs_later_today).then_some(slot)
 }
 
 /// Whether the last scheduled time at or before `now` already has its run, so a launchd start now is not a new one.
@@ -171,20 +171,41 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_caught_up_after_a_run_or_too_late() {
+    fn nothing_is_caught_up_after_a_run_or_before_a_run_the_same_day() {
         let now = at(2026, 10, 27, 9, 16);
         assert_eq!(missed_run(&job(9, 0, vec![]), now, Some(at(2026, 10, 27, 9, 0))), None);
         // Logged in before 09:00: yesterday's run happened.
         assert_eq!(missed_run(&job(9, 0, vec![]), at(2026, 10, 27, 8, 0), Some(at(2026, 10, 26, 9, 0))), None);
-        // Only Mondays, logged in on Wednesday: two days late.
-        assert_eq!(missed_run(&job(9, 0, vec![1]), at(2026, 10, 28, 10, 0), Some(at(2026, 10, 19, 9, 0))), None);
+        // Off since Saturday, logged in at 08:30 on Monday: the 09:00 run stands in for Sunday's.
+        let friday = Some(at(2026, 10, 30, 9, 0));
+        assert_eq!(missed_run(&job(9, 0, vec![]), at(2026, 11, 2, 8, 30), friday), None);
+        // Only Mondays, logged in at 08:30 the next Monday.
+        let monday = Some(at(2026, 10, 19, 9, 0));
+        assert_eq!(missed_run(&job(9, 0, vec![1]), at(2026, 11, 2, 8, 30), monday), None);
+        // On the 1st, before 09:00, after missing the month before.
+        assert_eq!(missed_run(&monthly(vec![1]), at(2026, 12, 1, 8, 30), Some(at(2026, 10, 1, 9, 0))), None);
     }
 
     #[test]
-    fn a_monthly_run_is_caught_up_the_day_it_was_missed() {
+    fn a_missed_run_is_caught_up_however_late() {
+        // Logged in at 22:00: the next 09:00 is tomorrow.
+        let daily = missed_run(&job(9, 0, vec![]), at(2026, 10, 27, 22, 0), Some(at(2026, 10, 26, 9, 0)));
+        assert_eq!(daily, Some(at(2026, 10, 27, 9, 0)));
+        // Only Mondays, logged in on Friday.
+        let weekly = missed_run(&job(9, 0, vec![1]), at(2026, 10, 30, 10, 0), Some(at(2026, 10, 19, 9, 0)));
+        assert_eq!(weekly, Some(at(2026, 10, 26, 9, 0)));
+    }
+
+    #[test]
+    fn a_monthly_run_is_caught_up_until_the_next_one() {
         let last = Some(at(2026, 10, 1, 9, 0));
         assert_eq!(missed_run(&monthly(vec![1]), at(2026, 11, 1, 9, 30), last), Some(at(2026, 11, 1, 9, 0)));
-        assert_eq!(missed_run(&monthly(vec![1]), at(2026, 11, 3, 9, 30), last), None);
+        // The 1st was a Sunday and the Mac stayed off until Monday morning.
+        assert_eq!(missed_run(&monthly(vec![1]), at(2026, 11, 2, 9, 2), last), Some(at(2026, 11, 1, 9, 0)));
+        assert_eq!(missed_run(&monthly(vec![1]), at(2026, 11, 30, 18, 0), last), Some(at(2026, 11, 1, 9, 0)));
+        // A job that never ran is caught up too.
+        let never = missed_run(&monthly(vec![1]), at(2026, 11, 2, 9, 2), None::<DateTime<Local>>);
+        assert_eq!(never, Some(at(2026, 11, 1, 9, 0)));
         // The last day a job on the 31st falls back to is caught up too.
         let march = Some(at(2027, 3, 31, 9, 0));
         assert_eq!(missed_run(&month_end(vec![31]), at(2027, 4, 30, 9, 30), march), Some(at(2027, 4, 30, 9, 0)));
