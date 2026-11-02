@@ -20,6 +20,11 @@ pub fn conditions_file() -> PathBuf {
     base().join("conditions.json")
 }
 
+/// The command conditions: see `conditions::CommandCondition`.
+pub fn command_conditions_file() -> PathBuf {
+    base().join("command_conditions.json")
+}
+
 pub fn runs_dir() -> PathBuf {
     base().join("runs")
 }

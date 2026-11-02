@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
-import { gcloudOut, signedIn } from '../test/fixtures'
+import { command, gcloudOut, signedIn } from '../test/fixtures'
 import { JobEditor } from './JobEditor'
 
 vi.mock('../api', () => ({
@@ -118,6 +118,35 @@ describe('JobEditor conditions', () => {
     expect(screen.getByText(/Not met right now/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Remove Google Cloud signed in' }))
     expect(screen.queryByText(/Not met right now/)).not.toBeInTheDocument()
+  })
+
+  it('offers the command conditions, with those for every job always on', async () => {
+    render(
+      <JobEditor
+        job={null}
+        defaults={defaults}
+        checks={{
+          ...signedIn,
+          commands: [
+            command({ id: 'vpn', name: 'VPN connected', every_job: true }),
+            command({ id: 'db', name: 'Database up', problem: 'Start the database.' }),
+          ],
+        }}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    )
+    expect(screen.getAllByText(/Required by every job/)).toHaveLength(2)
+    expect(screen.getByText('VPN connected')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add condition' }))
+    expect(screen.getByRole('menuitemcheckbox', { name: /VPN connected/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Database up/ }))
+    expect(screen.getByRole('button', { name: 'Remove Database up' })).toBeInTheDocument()
+    expect(screen.getByText(/Not met right now/)).toBeInTheDocument()
   })
 
   it('saves the conditions picked', async () => {

@@ -3,15 +3,17 @@ import { api } from '../api'
 import {
   type CheckActions,
   type Checks,
+  canSignIn,
   conditionState,
   shownConditions,
+  stateTitle,
   usedBy,
+  waitsFor,
 } from '../conditions'
-import type { Condition } from '../domain/Condition'
 import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
 import { clock, cost, duration, midSentence, STATUS_LABEL, tally, when } from '../format'
-import { CONDITION_NAME, failed, isRunning, unmetOf, waitsFor } from '../jobs'
+import { failed, isRunning, unmetOf } from '../jobs'
 import { Chip } from './Chip'
 import { Elapsed } from './Elapsed'
 
@@ -101,7 +103,8 @@ export function Overview({
                   {waiting.length
                     ? waiting
                         .map(
-                          (j) => `${j.name} · ${waitsFor(j.unmet_conditions) || 'its conditions'}`,
+                          (j) =>
+                            `${j.name} · ${waitsFor(j.unmet_conditions, checks) || 'its conditions'}`,
                         )
                         .join(', ')
                     : 'No run is waiting for its conditions'}
@@ -138,7 +141,7 @@ export function Overview({
                           <span className="up-when">{when(job.next_run)}</span>
                           <span className="up-name">{job.name}</span>
                           {unmet.length ? (
-                            <Chip tone="warn">Waits for {waitsFor(unmet)}</Chip>
+                            <Chip tone="warn">Waits for {waitsFor(unmet, checks)}</Chip>
                           ) : (
                             <Chip tone="ok">Ready</Chip>
                           )}
@@ -216,26 +219,26 @@ const timeOf = (iso: string) => {
 }
 
 type Attention =
-  | { kind: 'condition'; condition: Condition; title: string; text: string; canSignIn: boolean }
+  | { kind: 'condition'; condition: string; title: string; text: string; canSignIn: boolean }
   | { kind: 'run' | 'launchd'; job: JobView; title: string; text: string }
 
 export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
   const items: Attention[] = []
   for (const condition of shownConditions(checks, jobs)) {
     const state = conditionState(condition, checks)
-    const users = usedBy(condition, jobs).filter((j) => j.enabled)
+    const users = usedBy(condition, jobs, checks).filter((j) => j.enabled)
     if (state.met !== false || !users.length) continue
     const held = users.filter((j) => j.waiting)
     items.push({
       kind: 'condition',
       condition,
-      title: `${CONDITION_NAME[condition]} is ${state.word}`,
+      title: stateTitle(condition, checks),
       text: held.length
         ? held
             .map((j) => `${j.name} has waited since ${midSentence(when(j.waiting?.since))}.`)
             .join(' ')
         : `${users.map((j) => j.name).join(', ')} will wait for it.`,
-      canSignIn: !(condition === 'gcloud' && !checks.gcloud?.installed),
+      canSignIn: canSignIn(condition, checks),
     })
   }
   for (const job of jobs) {

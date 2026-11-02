@@ -1228,6 +1228,71 @@ pre.pre-bad {
   margin-top: auto;
 }
 
+/* Command conditions */
+
+.command-line {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.condition-editor {
+  gap: 12px;
+}
+
+.condition-editor h2 {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+input.grow {
+  flex: 1 1 200px;
+  width: auto;
+  min-width: 0;
+}
+
+.test-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.test-result.test-unmet {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+
+.test-result pre {
+  max-height: 160px;
+  overflow: auto;
+}
+
+.add-condition {
+  min-height: 64px;
+  height: auto;
+  gap: 10px;
+  border: 1.5px dashed var(--knob);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: normal;
+}
+
+.add-condition:hover:not(:disabled) {
+  color: var(--fg);
+}
+
 /* Editor */
 
 .editor {
@@ -1414,6 +1479,10 @@ textarea {
 
 .switches {
   gap: 0;
+}
+
+.condition-editor .switches {
+  border-top: 1px solid var(--line-soft);
 }
 
 .switches > .lbl {

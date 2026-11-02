@@ -1,6 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ApiError } from './domain/ApiError'
 import type { AppUpdate } from './domain/AppUpdate'
+import type { CommandCheck } from './domain/CommandCheck'
+import type { CommandCondition } from './domain/CommandCondition'
+import type { CommandConditionView } from './domain/CommandConditionView'
 import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
@@ -26,6 +29,12 @@ export const api = {
   gcloudSignIn: () => invoke<GcloudStatus>('gcloud_sign_in'),
   claudeStatus: () => invoke<ConditionStatus>('claude_status'),
   claudeSignIn: () => invoke<void>('claude_sign_in'),
+  listConditions: () => invoke<CommandConditionView[]>('list_conditions'),
+  saveCondition: (condition: CommandCondition, editing: string | null) =>
+    invoke<CommandCondition>('save_condition', { condition, editing }),
+  deleteCondition: (id: string) => invoke<void>('delete_condition', { id }),
+  checkCondition: (condition: CommandCondition) =>
+    invoke<CommandCheck>('check_condition', { condition }),
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
   listSkills: (claude: string, path: string, cwd: string) =>

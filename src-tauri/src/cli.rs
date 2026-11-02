@@ -128,7 +128,7 @@ fn fail(e: ApiError) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::conditions::{Condition, ConditionStatus, CLAUDE_EXPIRED};
+    use crate::conditions::{ConditionStatus, CLAUDE, CLAUDE_EXPIRED};
     use crate::jobs::Job;
 
     #[test]
@@ -148,7 +148,7 @@ mod tests {
             last_run: Some(run.clone()),
             waiting: None,
             unmet_conditions: vec![ConditionStatus {
-                condition: Condition::Claude,
+                condition: CLAUDE.to_string(),
                 problem: Some(CLAUDE_EXPIRED.into()),
             }],
         };
