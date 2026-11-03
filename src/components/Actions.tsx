@@ -166,14 +166,6 @@ function ActionCard({
         </dl>
       </div>
       <div className="cond-side">
-        <span className="lbl">Message</span>
-        <span className="muted small-text">
-          Starts the workflow with the {action.target.to}'s ID in{' '}
-          <span className="mono">{action.target.to}</span>, and the run in{' '}
-          <span className="mono">text</span>, <span className="mono">summary</span>,{' '}
-          <span className="mono">result</span>, <span className="mono">job</span> and{' '}
-          <span className="mono">status</span>.
-        </span>
         {sent && <SentResult sent={sent} />}
         <div className="actions cond-actions">
           <button type="button" disabled={testing} onClick={test}>
