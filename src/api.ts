@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import type { Action } from './domain/Action'
 import type { ApiError } from './domain/ApiError'
 import type { AppUpdate } from './domain/AppUpdate'
 import type { CommandCheck } from './domain/CommandCheck'
@@ -35,6 +36,11 @@ export const api = {
   deleteCondition: (id: string) => invoke<void>('delete_condition', { id }),
   checkCondition: (condition: CommandCondition) =>
     invoke<CommandCheck>('check_condition', { condition }),
+  listActions: () => invoke<Action[]>('list_actions'),
+  saveAction: (action: Action, editing: string | null) =>
+    invoke<Action>('save_action', { action, editing }),
+  deleteAction: (id: string) => invoke<void>('delete_action', { id }),
+  testAction: (action: Action) => invoke<void>('test_action', { action }),
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
   listSkills: (claude: string, path: string, cwd: string) =>

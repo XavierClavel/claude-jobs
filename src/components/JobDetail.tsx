@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import { actionName, OUTCOMES } from '../actions'
 import { api } from '../api'
 import { type Checks, conditionState, fullName, required } from '../conditions'
+import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
 import type { Trigger } from '../domain/Trigger'
@@ -30,6 +32,7 @@ const RECENT = 5
 export function JobDetail({
   job,
   checks,
+  actions,
   onRun,
   onToggle,
   onEdit,
@@ -38,6 +41,7 @@ export function JobDetail({
 }: {
   job: JobView
   checks: Checks
+  actions: Action[]
   onRun: () => void
   onToggle: () => void
   onEdit: () => void
@@ -184,6 +188,22 @@ export function JobDetail({
                   )
                 })}
               </dd>
+              {OUTCOMES.map(([outcome, label]) => (
+                <Fragment key={outcome}>
+                  <dt>{label}</dt>
+                  <dd className="tags">
+                    {job[outcome].length === 0 ? (
+                      <span className="muted">Nothing</span>
+                    ) : (
+                      job[outcome].map((id) => (
+                        <span key={id} className="tag">
+                          {actionName(id, actions)}
+                        </span>
+                      ))
+                    )}
+                  </dd>
+                </Fragment>
+              ))}
             </dl>
           </section>
         </div>

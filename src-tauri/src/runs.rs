@@ -1,5 +1,6 @@
 //! Run history: one `<run>.json` per run in `~/.claude-jobs/runs/<job>/`, with Claude's output and errors beside it.
 
+use crate::actions::ActionResult;
 use crate::{jobs, paths};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -68,6 +69,9 @@ pub struct RunRecord {
     /// The tmux session of an interactive run, which the app can open to watch it.
     #[serde(default)]
     pub tmux_session: Option<String>,
+    /// What the job's actions did once the run ended: see `actions`.
+    #[serde(default)]
+    pub actions: Vec<ActionResult>,
 }
 
 /// A run waiting for its job's conditions, kept in `runs/<job>/waiting.json` while its runner is alive. It is not in

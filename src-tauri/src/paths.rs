@@ -25,6 +25,11 @@ pub fn command_conditions_file() -> PathBuf {
     base().join("command_conditions.json")
 }
 
+/// What jobs do when a run ends: see `actions::Action`.
+pub fn actions_file() -> PathBuf {
+    base().join("actions.json")
+}
+
 pub fn runs_dir() -> PathBuf {
     base().join("runs")
 }

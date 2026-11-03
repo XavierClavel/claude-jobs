@@ -222,6 +222,9 @@ mod tests {
             interactive: false,
             chrome: false,
             conditions: vec![],
+            on_success: vec![],
+            on_failure: vec![],
+            on_complete: vec![],
         }
     }
 

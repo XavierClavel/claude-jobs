@@ -1,5 +1,6 @@
 //! What the window can ask for. Every write goes through one lock, so two saves cannot interleave.
 
+use crate::actions::{self, Action};
 use crate::conditions::{self, CommandCheck, CommandCondition, ConditionStatus, CLAUDE};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
@@ -104,6 +105,18 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
         job.conditions.iter().map(String::as_str).filter(|c| !conditions::is_known(c, &commands)).collect();
     if !unknown.is_empty() {
         return Err(format!("No condition called {}.", unknown.join(", ")).into());
+    }
+    let defined = actions::load()?;
+    let unknown: Vec<&str> = job
+        .on_success
+        .iter()
+        .chain(&job.on_failure)
+        .chain(&job.on_complete)
+        .map(String::as_str)
+        .filter(|a| !actions::is_known(a, &defined))
+        .collect();
+    if !unknown.is_empty() {
+        return Err(format!("No action called {}.", unknown.join(", ")).into());
     }
     if job.interactive {
         // Here rather than at the first run, so a folder Claude Code cannot trust shows in the editor.
@@ -310,6 +323,54 @@ pub fn delete_condition(id: String) -> Reply<()> {
 pub fn check_condition(condition: CommandCondition) -> Reply<CommandCheck> {
     let saved = conditions::load_commands()?.contains(&condition);
     Ok(conditions::check_command(&condition, &check_path()?, saved).0)
+}
+
+/// What jobs can do when a run ends.
+#[tauri::command(async)]
+pub fn list_actions() -> Reply<Vec<Action>> {
+    Ok(actions::load()?)
+}
+
+#[tauri::command(async)]
+pub fn save_action(action: Action, editing: Option<String>) -> Reply<Action> {
+    let _guard = lock();
+    let mut all = actions::load()?;
+    let action = actions::validate(action, &all, editing.as_deref())?;
+    match all.iter_mut().find(|a| a.id == action.id) {
+        Some(existing) => *existing = action.clone(),
+        None => all.push(action.clone()),
+    }
+    actions::save(&all)?;
+    Ok(action)
+}
+
+/// Deletes an action, and takes it off the jobs that used it.
+#[tauri::command(async)]
+pub fn delete_action(id: String) -> Reply<()> {
+    let _guard = lock();
+    let all = actions::load()?;
+    if !all.iter().any(|a| a.id == id) {
+        return Err(format!("No action called {id}.").into());
+    }
+    let mut jobs = jobs::load()?;
+    if jobs.iter().any(|j| j.on_success.contains(&id) || j.on_failure.contains(&id) || j.on_complete.contains(&id)) {
+        for job in &mut jobs {
+            job.on_success.retain(|a| *a != id);
+            job.on_failure.retain(|a| *a != id);
+            job.on_complete.retain(|a| *a != id);
+        }
+        jobs::save(&jobs)?;
+    }
+    actions::save(&all.into_iter().filter(|a| a.id != id).collect::<Vec<_>>())?;
+    Ok(())
+}
+
+/// Sends a test message with an action, saved or not, once its fields are valid.
+#[tauri::command(async)]
+pub fn test_action(action: Action) -> Reply<()> {
+    // Checked as a new action, so a test works before it is saved and while it is edited.
+    let action = actions::validate(Action { id: "test".into(), ..action }, &[], None)?;
+    Ok(actions::test(&action)?)
 }
 
 /// Opens Terminal on `claude auth login`, with the environment the runs get, so the login is the one they use.

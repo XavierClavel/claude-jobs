@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorsOf } from './api'
+import { Actions } from './components/Actions'
 import { Conditions } from './components/Conditions'
 import { History } from './components/History'
 import { JobDetail } from './components/JobDetail'
@@ -8,6 +9,7 @@ import { Overview } from './components/Overview'
 import { Sidebar } from './components/Sidebar'
 import { UpdateBar } from './components/UpdateBar'
 import type { CheckActions, Checks } from './conditions'
+import type { Action } from './domain/Action'
 import type { AppUpdate } from './domain/AppUpdate'
 import type { CommandConditionView } from './domain/CommandConditionView'
 import type { ConditionStatus } from './domain/ConditionStatus'
@@ -22,6 +24,7 @@ type View =
   | { kind: 'edit'; id: string | null }
   | { kind: 'history'; id: string; run: string | null }
   | { kind: 'conditions' }
+  | { kind: 'actions' }
 
 export function App() {
   const [jobs, setJobs] = useState<JobView[] | null>(null)
@@ -32,6 +35,7 @@ export function App() {
   const [gcloud, setGcloud] = useState<GcloudStatus | null>(null)
   const [claude, setClaude] = useState<ConditionStatus | null>(null)
   const [commands, setCommands] = useState<CommandConditionView[]>([])
+  const [actionList, setActionList] = useState<Action[]>([])
   const [signingIn, setSigningIn] = useState(false)
   const [update, setUpdate] = useState<AppUpdate | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -44,11 +48,18 @@ export function App() {
     }
   }, [])
 
+  // A file that does not parse is said, not taken for no actions.
+  const loadActions = useCallback(
+    () => api.listActions().then(setActionList, (e) => setBanner(errorsOf(e))),
+    [],
+  )
+
   useEffect(() => {
     refresh()
+    loadActions()
     api.defaults().then(setDefaults, () => setDefaults(null))
     api.appVersion().then(setVersion, () => setVersion(null))
-  }, [refresh])
+  }, [refresh, loadActions])
 
   // Faster while a run is going or waiting to start, so its end or start shows up without reloading.
   const busy = jobs?.some((j) => j.last_run?.status === 'running' || j.waiting !== null) ?? false
@@ -152,9 +163,11 @@ export function App() {
         jobs={jobs}
         selected={job?.id ?? null}
         conditionsOpen={view.kind === 'conditions'}
+        actionsOpen={view.kind === 'actions'}
         editing={view.kind === 'edit'}
         checks={checks}
         actions={actions}
+        actionList={actionList}
         onCheckUpdate={checkUpdateNow}
         onNew={() => setView({ kind: 'edit', id: null })}
         onSelect={(id) =>
@@ -163,6 +176,7 @@ export function App() {
           )
         }
         onConditions={() => setView({ kind: 'conditions' })}
+        onActions={() => setView({ kind: 'actions' })}
         onOverview={() => setView({ kind: 'overview' })}
       />
       <main className="pane">
@@ -190,6 +204,7 @@ export function App() {
             job={job ?? null}
             defaults={defaults}
             checks={checks}
+            actions={actionList}
             onClose={() => setView(job ? { kind: 'job', id: job.id } : { kind: 'overview' })}
             onSaved={(saved) => {
               setView(saved ? { kind: 'job', id: saved.id } : { kind: 'overview' })
@@ -211,6 +226,7 @@ export function App() {
           <JobDetail
             job={job}
             checks={checks}
+            actions={actionList}
             onRun={() => act(() => api.runNow(job.id), 1500)}
             onToggle={() => act(() => api.setEnabled(job.id, !job.enabled))}
             onEdit={() => setView({ kind: 'edit', id: job.id })}
@@ -219,6 +235,14 @@ export function App() {
           />
         ) : view.kind === 'conditions' ? (
           <Conditions jobs={jobs} checks={checks} actions={actions} onSelect={select} />
+        ) : view.kind === 'actions' ? (
+          <Actions
+            actions={actionList}
+            jobs={jobs}
+            // Deleting one takes it off the jobs that used it.
+            onChanged={() => Promise.all([loadActions(), refresh()])}
+            onSelect={select}
+          />
         ) : (
           <Overview
             jobs={jobs}

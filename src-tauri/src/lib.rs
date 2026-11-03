@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod cli;
 pub mod commands;
 pub mod conditions;
@@ -42,6 +43,10 @@ pub fn run() {
             commands::save_condition,
             commands::delete_condition,
             commands::check_condition,
+            commands::list_actions,
+            commands::save_action,
+            commands::delete_action,
+            commands::test_action,
             commands::tmux_status,
             commands::install_tmux,
             commands::list_skills,

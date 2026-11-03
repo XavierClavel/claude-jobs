@@ -181,13 +181,13 @@ export function Overview({
                       )}
                     </div>
                   ) : (
-                    <div key={item.job.id} className="att">
+                    <div key={`${item.kind}/${item.job.id}`} className="att">
                       <span className={`dot dot-${item.kind === 'run' ? 'bad' : 'warn'}`} />
                       <div className="att-text">
                         <div className="att-name">{item.title}</div>
                         <div className="att-sub">{item.text}</div>
                       </div>
-                      {item.kind === 'run' && item.job.last_run ? (
+                      {item.kind !== 'launchd' && item.job.last_run ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -220,7 +220,7 @@ const timeOf = (iso: string) => {
 
 type Attention =
   | { kind: 'condition'; condition: string; title: string; text: string; canSignIn: boolean }
-  | { kind: 'run' | 'launchd'; job: JobView; title: string; text: string }
+  | { kind: 'run' | 'action' | 'launchd'; job: JobView; title: string; text: string }
 
 export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
   const items: Attention[] = []
@@ -261,6 +261,15 @@ export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
             ? `exit code ${last.exit_code} after ${duration(last.duration_s)}`
             : duration(last.duration_s),
         ].join(' · '),
+      })
+    // Nobody hears of a run whose message did not go out.
+    const unsent = last?.actions.filter((a) => a.error) ?? []
+    if (last && unsent.length)
+      items.push({
+        kind: 'action',
+        job,
+        title: `${job.name}: ${unsent.map((a) => a.name).join(', ')} did not send`,
+        text: unsent.map((a) => a.error).join(' '),
       })
   }
   return items

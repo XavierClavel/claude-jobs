@@ -54,4 +54,16 @@ export type JobView = {
    * command condition's id. See `conditions`.
    */
   conditions: Array<string>
+  /**
+   * What to do when a run goes well: ids of the actions in `actions.json`. See `actions`.
+   */
+  on_success: Array<string>
+  /**
+   * What to do when a run fails or times out.
+   */
+  on_failure: Array<string>
+  /**
+   * What to do when a run ends, however it went: on top of `on_success` or `on_failure`.
+   */
+  on_complete: Array<string>
 }

@@ -1,5 +1,6 @@
 //! One headless run of a job: `claude -p <prompt> --output-format json`, recorded in the job's history.
 
+use crate::actions;
 use crate::conditions::{self, ConditionStatus, CLAUDE_EXPIRED};
 use crate::jobs::{self, Job};
 use crate::runs::{self, RunRecord, RunStatus, Trigger, Waiting};
@@ -175,6 +176,7 @@ fn attempt(job: &Job, trigger: Trigger) -> Option<i32> {
         prompt: Some(job.prompt.clone()),
         interactive: job.interactive,
         tmux_session: None,
+        actions: vec![],
     };
     if let Err(e) = runs::save(&rec) {
         eprintln!("cannot record the run: {e}");
@@ -205,6 +207,17 @@ fn attempt(job: &Job, trigger: Trigger) -> Option<i32> {
     if rec.status != RunStatus::Ok {
         let last_line = rec.error.as_deref().and_then(|e| e.lines().last()).unwrap_or("The run did not finish.");
         alert(&format!("Claude job failed: {}", job.name), last_line);
+    }
+    // Once the run is recorded as ended, so the window does not show it running while Slack answers.
+    rec.actions = actions::after_run(job, &rec);
+    if !rec.actions.is_empty() {
+        for done in &rec.actions {
+            match &done.error {
+                Some(e) => eprintln!("{job_id}: {}: {e}", done.name),
+                None => eprintln!("{job_id}: {}: sent", done.name),
+            }
+        }
+        let _ = runs::save(&rec);
     }
     Some(if rec.status == RunStatus::Ok { 0 } else { 1 })
 }

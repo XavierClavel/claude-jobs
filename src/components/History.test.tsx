@@ -48,6 +48,22 @@ describe('History', () => {
     expect(await screen.findByText('done')).toBeInTheDocument()
   })
 
+  it('says what the actions did once the run ended', async () => {
+    const notified = run({
+      id: 'new',
+      actions: [
+        { action: 'ops', name: 'Ops channel', error: null },
+        { action: 'me', name: 'Me', error: 'Slack refused the message (404 no_service).' },
+      ],
+    })
+    vi.mocked(api.listRuns).mockResolvedValue([notified])
+    vi.mocked(api.getRun).mockResolvedValue({ ...notified, out: '', err: '' })
+    render(<History job={job()} run={null} onBack={() => {}} />)
+    const actions = await screen.findByRole('region', { name: 'Actions' })
+    expect(actions).toHaveTextContent('Ops channel · sent')
+    expect(actions).toHaveTextContent('Me · Slack refused the message (404 no_service).')
+  })
+
   it('opens on the newest run otherwise, and goes back to the job', async () => {
     const onBack = vi.fn()
     render(<History job={job()} run={null} onBack={onBack} />)

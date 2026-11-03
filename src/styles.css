@@ -1250,6 +1250,15 @@ pre.pre-bad {
   font-weight: 800;
 }
 
+/* An editor's last row: a test on the left, Cancel and Save on the right. */
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 input.grow {
   flex: 1 1 200px;
   width: auto;
@@ -1775,4 +1784,69 @@ button.pick:hover:not(:disabled),
     border-left: 0;
     border-top: 1px solid var(--line-soft);
   }
+}
+
+/* Actions */
+
+.outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.outcome + .outcome {
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.outcome .picker {
+  top: 34px;
+  right: 0;
+}
+
+.outcome-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workflow-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.variables {
+  font-size: 12.5px;
+}
+
+.variables tbody tr {
+  cursor: default;
+}
+
+.variables tbody tr:hover td {
+  background: none;
+}
+
+.action-result {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
 }

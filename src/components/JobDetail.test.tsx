@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import type { JobView } from '../domain/JobView'
-import { expired, gcloudOut, job, run, signedIn } from '../test/fixtures'
+import { action, expired, gcloudOut, job, run, signedIn } from '../test/fixtures'
 import { JobDetail } from './JobDetail'
 
 vi.mock('../api', () => ({
@@ -16,6 +16,7 @@ function detail(view: JobView, handlers: Partial<Parameters<typeof JobDetail>[0]
     <JobDetail
       job={view}
       checks={signedIn}
+      actions={[]}
       onRun={noop}
       onToggle={noop}
       onEdit={noop}
@@ -114,6 +115,7 @@ describe('JobDetail conditions', () => {
       <JobDetail
         job={job({ conditions: ['gcloud'] })}
         checks={gcloudOut}
+        actions={[]}
         onRun={noop}
         onToggle={noop}
         onEdit={noop}
@@ -123,6 +125,13 @@ describe('JobDetail conditions', () => {
     )
     expect(screen.getByText('Claude Code signed in')).toBeInTheDocument()
     expect(screen.getByText('Google Cloud signed in')).toBeInTheDocument()
+  })
+
+  it('lists what the job does when a run ends', () => {
+    detail(job({ on_failure: ['ops'] }), { actions: [action()] })
+    expect(screen.getByText('On success').nextElementSibling).toHaveTextContent('Nothing')
+    expect(screen.getByText('On failure').nextElementSibling).toHaveTextContent('Ops channel')
+    expect(screen.getByText('On complete').nextElementSibling).toHaveTextContent('Nothing')
   })
 })
 
@@ -142,6 +151,7 @@ describe('JobDetail on an interactive job', () => {
       <JobDetail
         job={job({ interactive: true })}
         checks={signedIn}
+        actions={[]}
         onRun={noop}
         onToggle={noop}
         onEdit={noop}
