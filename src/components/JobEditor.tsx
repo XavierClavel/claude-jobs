@@ -25,6 +25,7 @@ import {
 } from '../editor'
 import { DAYS, MONTH_DAYS, scheduleText, slug } from '../format'
 import { AfterRunCard } from './AfterRunCard'
+import { ConditionIcon } from './ConditionIcon'
 import { Icon } from './Icon'
 import { PromptField } from './PromptField'
 import { Switch } from './Switch'
@@ -469,6 +470,7 @@ function ConditionsCard({
         {everyJob.map((condition) => (
           <div key={condition} className="condition-item">
             <span className={`dot dot-${status(condition).tone}`} />
+            <ConditionIcon condition={condition} size={16} />
             <span className="condition-text">
               <span className="condition-name">{fullName(condition, checks)}</span>
               <span className="condition-sub">
@@ -483,6 +485,7 @@ function ConditionsCard({
         {picked.map((condition) => (
           <div key={condition} className="condition-item">
             <span className={`dot dot-${status(condition).tone}`} />
+            <ConditionIcon condition={condition} size={16} />
             <span className="condition-text">
               <span className="condition-name">{fullName(condition, checks)}</span>
               <span className="condition-sub">{status(condition).text}</span>
@@ -515,6 +518,7 @@ function ConditionsCard({
               className="pick"
             >
               <Icon name="check" />
+              <ConditionIcon condition={condition} size={16} />
               <span className="condition-text">
                 <span className="condition-name">{fullName(condition, checks)}</span>
                 <span className="condition-sub">On every job</span>
@@ -538,6 +542,7 @@ function ConditionsCard({
                 <span className={on ? undefined : 'invisible'}>
                   <Icon name="check" />
                 </span>
+                <ConditionIcon condition={condition} size={16} />
                 <span className="condition-text">
                   <span className="condition-name">{fullName(condition, checks)}</span>
                   <span className={`condition-sub${isBuiltIn(condition) ? '' : ' mono'}`}>

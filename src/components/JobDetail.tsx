@@ -19,6 +19,7 @@ import {
 import { isRunning, unmetOf } from '../jobs'
 import { ActionIcon } from './ActionIcon'
 import { Chip, runTone } from './Chip'
+import { ConditionIcon } from './ConditionIcon'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 
@@ -184,6 +185,7 @@ export function JobDetail({
                   return (
                     <span key={condition} className="inline">
                       <span className={`dot dot-${met === null ? 'muted' : met ? 'ok' : 'warn'}`} />
+                      <ConditionIcon condition={condition} />
                       {fullName(condition, checks)}
                     </span>
                   )

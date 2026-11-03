@@ -14,6 +14,7 @@ import type { JobView } from '../domain/JobView'
 import { midSentence, when } from '../format'
 import { Chip } from './Chip'
 import { CommandConditionEditor } from './CommandConditionEditor'
+import { ConditionIcon } from './ConditionIcon'
 import { Icon } from './Icon'
 
 const ABOUT: Record<string, { tag: string; what: ReactNode; fix: ReactNode }> = {
@@ -262,6 +263,7 @@ function BuiltInCard({
     >
       <div className="cond-main">
         <div className="inline wrap">
+          <ConditionIcon condition={condition} size={18} />
           <h2>{fullName(condition, checks)}</h2>
           <StateChip met={state.met} />
           <span className="tag">{about?.tag}</span>

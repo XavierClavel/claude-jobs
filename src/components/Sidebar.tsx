@@ -12,6 +12,7 @@ import type { JobView } from '../domain/JobView'
 import { day, midSentence, STATUS_LABEL, scheduleShort } from '../format'
 import { failed, isRunning, jobTone, unmetOf } from '../jobs'
 import { ActionIcon } from './ActionIcon'
+import { ConditionIcon } from './ConditionIcon'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 import { UpdateCheck } from './UpdateCheck'
@@ -132,6 +133,7 @@ export function Sidebar({
               <span
                 className={`dot dot-${state.met === null ? 'muted' : state.met ? 'ok' : 'warn'}`}
               />
+              <ConditionIcon condition={condition} size={13} />
               <span className="side-condition-name">{shortName(condition, checks)}</span>
               {signIn && !conditionsOpen ? (
                 <button
