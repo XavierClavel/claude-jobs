@@ -11,6 +11,7 @@ import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
 import { day, midSentence, STATUS_LABEL, scheduleShort } from '../format'
 import { failed, isRunning, jobTone, unmetOf } from '../jobs'
+import { ActionIcon } from './ActionIcon'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 import { UpdateCheck } from './UpdateCheck'
@@ -168,6 +169,7 @@ export function Sidebar({
         ) : (
           actionList.map((action) => (
             <div key={action.id} className="side-condition">
+              <ActionIcon action={action} size={13} />
               <span className="side-condition-name">{action.name}</span>
               <span className="muted small-text">{action.target.to}</span>
             </div>

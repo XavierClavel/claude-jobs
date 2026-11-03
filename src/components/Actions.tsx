@@ -4,6 +4,7 @@ import { api, errorsOf } from '../api'
 import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
 import { ActionEditor, type Sent, SentResult, sendTest } from './ActionEditor'
+import { ActionIcon } from './ActionIcon'
 import { Icon } from './Icon'
 
 // Which action the form is open on: a new one, or one by its id.
@@ -133,7 +134,10 @@ function ActionCard({
       <div className="cond-main">
         <div className="inline wrap">
           <h2>{action.name}</h2>
-          <span className="tag">Slack workflow</span>
+          <span className="tag with-icon">
+            <ActionIcon action={action} size={12} />
+            Slack workflow
+          </span>
         </div>
         <p className="cond-about">{destinationText(action)}</p>
         <dl className="kv">

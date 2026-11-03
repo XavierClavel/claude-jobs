@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { destinationText } from '../actions'
 import type { Action } from '../domain/Action'
+import { ActionIcon } from './ActionIcon'
 import { Icon } from './Icon'
 import { useDismiss } from './useDismiss'
 
@@ -90,6 +91,7 @@ function OutcomeRow({
             const name = action?.name ?? id
             return (
               <div key={id} className="condition-item">
+                {action && <ActionIcon action={action} size={16} />}
                 <span className="condition-text">
                   <span className="condition-name">{name}</span>
                   <span className="condition-sub">
@@ -129,6 +131,7 @@ function OutcomeRow({
                 <span className={on ? undefined : 'invisible'}>
                   <Icon name="check" />
                 </span>
+                <ActionIcon action={action} size={16} />
                 <span className="condition-text">
                   <span className="condition-name">{action.name}</span>
                   <span className="condition-sub">

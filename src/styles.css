@@ -1850,3 +1850,13 @@ button.pick:hover:not(:disabled),
   gap: 8px;
   font-size: 13px;
 }
+
+.action-icon {
+  flex: none;
+}
+
+.tag.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

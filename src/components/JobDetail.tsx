@@ -17,6 +17,7 @@ import {
   when,
 } from '../format'
 import { isRunning, unmetOf } from '../jobs'
+import { ActionIcon } from './ActionIcon'
 import { Chip, runTone } from './Chip'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
@@ -196,7 +197,8 @@ export function JobDetail({
                       <span className="muted">Nothing</span>
                     ) : (
                       job[outcome].map((id) => (
-                        <span key={id} className="tag">
+                        <span key={id} className="tag with-icon">
+                          <PickedIcon id={id} actions={actions} />
                           {actionName(id, actions)}
                         </span>
                       ))
@@ -291,4 +293,10 @@ function RunsTable({ runs, onOpen }: { runs: RunRecord[]; onOpen: (run: RunRecor
       </tbody>
     </table>
   )
+}
+
+// The mark of a job's action, none when it no longer exists.
+function PickedIcon({ id, actions }: { id: string; actions: Action[] }) {
+  const action = actions.find((a) => a.id === id)
+  return action ? <ActionIcon action={action} size={12} /> : null
 }

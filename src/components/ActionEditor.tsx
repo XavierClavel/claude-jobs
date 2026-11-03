@@ -4,6 +4,7 @@ import { api, errorsOf } from '../api'
 import type { Action } from '../domain/Action'
 import type { SlackTo } from '../domain/SlackTo'
 import { slug } from '../format'
+import { ActionIcon } from './ActionIcon'
 
 // What the form's fields hold, as typed; `toAction` turns it into the action the Rust side checks.
 type Draft = {
@@ -118,7 +119,10 @@ export function ActionEditor({
     >
       <div className="card-head">
         <h2>{action ? `Edit ${action.name}` : 'New action'}</h2>
-        <span className="tag">Slack workflow</span>
+        <span className="tag with-icon">
+          <ActionIcon action={toAction(draft)} size={12} />
+          Slack workflow
+        </span>
       </div>
       <div className="grid-2 tight">
         <label className="field">
