@@ -1,28 +1,15 @@
 import { useId } from 'react'
 
-// The marks of the conditions: Claude's spark for Claude Code, a four-colour cloud for Google Cloud, and a terminal for a
+// The marks of the conditions: Anthropic's mark for Claude Code, a four-colour cloud for Google Cloud, and a terminal for a
 // command condition, which runs a bash command. Decorative: the condition's name says the rest.
 
-// The spark's rays: angle in degrees from the top, and length from the centre.
-const RAYS: [number, number][] = Array.from({ length: 12 }, (_, i) => [i * 30 + 8, i % 2 ? 7 : 9.6])
+// Anthropic's mark, from its brand assets (as Simple Icons has it), in the text's colour: its own near-black would
+// not show in dark mode.
+const ANTHROPIC =
+  'M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z'
 
-function ClaudeMark() {
-  return (
-    <g stroke="#D97757" strokeWidth="2.3" strokeLinecap="round">
-      {RAYS.map(([angle, length]) => {
-        const rad = (angle * Math.PI) / 180
-        return (
-          <line
-            key={angle}
-            x1={12 + Math.sin(rad) * 1.6}
-            y1={12 - Math.cos(rad) * 1.6}
-            x2={12 + Math.sin(rad) * length}
-            y2={12 - Math.cos(rad) * length}
-          />
-        )
-      })}
-    </g>
-  )
+function AnthropicMark() {
+  return <path fill="currentColor" d={ANTHROPIC} />
 }
 
 // A cloud's outline, drawn once per colour, each time inside its own part of the square.
@@ -88,7 +75,7 @@ export function ConditionIcon({ condition, size = 14 }: { condition: string; siz
       data-condition={condition}
     >
       {condition === 'claude' ? (
-        <ClaudeMark />
+        <AnthropicMark />
       ) : condition === 'gcloud' ? (
         <GcloudMark id={id} />
       ) : (
