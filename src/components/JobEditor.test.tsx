@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
-import { command, gcloudOut, signedIn } from '../test/fixtures'
+import { action, command, gcloudOut, signedIn } from '../test/fixtures'
 import { JobEditor } from './JobEditor'
 
 vi.mock('../api', () => ({
@@ -18,6 +18,7 @@ async function newJob() {
       job={null}
       defaults={defaults}
       checks={signedIn}
+      actions={[]}
       onClose={() => {}}
       onSaved={onSaved}
       onDeleted={() => {}}
@@ -106,6 +107,7 @@ describe('JobEditor conditions', () => {
         job={null}
         defaults={defaults}
         checks={gcloudOut}
+        actions={[]}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}
@@ -132,6 +134,7 @@ describe('JobEditor conditions', () => {
             command({ id: 'db', name: 'Database up', problem: 'Start the database.' }),
           ],
         }}
+        actions={[]}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}
@@ -162,6 +165,59 @@ describe('JobEditor conditions', () => {
   })
 })
 
+describe('JobEditor actions', () => {
+  beforeEach(() => vi.mocked(api.saveJob).mockReset())
+
+  const me = action({
+    id: 'me',
+    name: 'Me',
+    target: { ...action().target, to: 'user', recipient: 'U0123ABCD' },
+  })
+
+  function editor(actions = [action(), me]) {
+    render(
+      <JobEditor
+        job={null}
+        defaults={defaults}
+        checks={signedIn}
+        actions={actions}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    )
+  }
+
+  it('picks what to do on success and on failure, and saves them', async () => {
+    editor()
+    await userEvent.type(screen.getByLabelText('Name'), 'Monthly report')
+    await userEvent.type(screen.getByLabelText('Prompt'), '/report')
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on failure' }))
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Ops channel/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on failure' }))
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Me/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on success' }))
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Me/ }))
+    const failure = within(screen.getByRole('group', { name: 'On failure' }))
+    expect(failure.getByText('Slack · Posts in channel C0123ABCD')).toBeInTheDocument()
+    expect(failure.getByText('Slack · Messages user U0123ABCD')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Me on failure' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on complete' }))
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Ops channel/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ on_success: ['me'], on_failure: ['ops'], on_complete: ['ops'] }),
+      null,
+    )
+  })
+
+  it('has nothing to pick before an action exists', () => {
+    editor([])
+    expect(screen.getByRole('button', { name: 'Add action on success' })).toBeDisabled()
+    expect(screen.getByText(/No action yet/)).toBeInTheDocument()
+  })
+})
+
 describe('JobEditor prompt', () => {
   const skills = [
     { name: 'photobook-monitor', description: 'Refresh the photobook monitor', argument_hint: '' },
@@ -176,6 +232,7 @@ describe('JobEditor prompt', () => {
         job={null}
         defaults={defaults}
         checks={signedIn}
+        actions={[]}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}

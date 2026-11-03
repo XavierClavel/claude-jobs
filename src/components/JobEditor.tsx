@@ -9,6 +9,7 @@ import {
   optionalConditions,
   required,
 } from '../conditions'
+import type { Action } from '../domain/Action'
 import type { Defaults } from '../domain/Defaults'
 import type { JobView } from '../domain/JobView'
 import type { Skill } from '../domain/Skill'
@@ -23,10 +24,13 @@ import {
   withRepeat,
 } from '../editor'
 import { DAYS, MONTH_DAYS, scheduleText, slug } from '../format'
+import { AfterRunCard } from './AfterRunCard'
+import { ConditionIcon } from './ConditionIcon'
 import { Icon } from './Icon'
 import { PromptField } from './PromptField'
 import { Switch } from './Switch'
 import { TmuxNotice } from './TmuxNotice'
+import { useDismiss } from './useDismiss'
 
 const REPEATS: [Repeat, string][] = [
   ['daily', 'Daily'],
@@ -38,6 +42,7 @@ export function JobEditor({
   job,
   defaults,
   checks,
+  actions,
   onClose,
   onSaved,
   onDeleted,
@@ -45,6 +50,8 @@ export function JobEditor({
   job: JobView | null
   defaults: Defaults | null
   checks: Checks
+  // What a run can do when it ends.
+  actions: Action[]
   onClose: () => void
   onSaved: (saved: JobView) => void
   onDeleted: () => void
@@ -308,6 +315,16 @@ export function JobEditor({
             onToggle={toggleCondition}
           />
 
+          <AfterRunCard
+            picked={{
+              onSuccess: draft.onSuccess,
+              onFailure: draft.onFailure,
+              onComplete: draft.onComplete,
+            }}
+            actions={actions}
+            onChange={set}
+          />
+
           <section className="card switches" aria-label="Run as">
             <div className="lbl">Run as</div>
             <Switch label="Enabled" checked={draft.enabled} onChange={(on) => set('enabled', on)}>
@@ -411,23 +428,7 @@ function ConditionsCard({
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLElement>(null)
-
-  // A click elsewhere or Escape closes the list.
-  useEffect(() => {
-    if (!open) return
-    const away = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', away)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', away)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  useDismiss(open, ref, setOpen)
 
   const status = (condition: string) => {
     const state = conditionState(condition, checks)
@@ -469,6 +470,7 @@ function ConditionsCard({
         {everyJob.map((condition) => (
           <div key={condition} className="condition-item">
             <span className={`dot dot-${status(condition).tone}`} />
+            <ConditionIcon condition={condition} size={16} />
             <span className="condition-text">
               <span className="condition-name">{fullName(condition, checks)}</span>
               <span className="condition-sub">
@@ -483,6 +485,7 @@ function ConditionsCard({
         {picked.map((condition) => (
           <div key={condition} className="condition-item">
             <span className={`dot dot-${status(condition).tone}`} />
+            <ConditionIcon condition={condition} size={16} />
             <span className="condition-text">
               <span className="condition-name">{fullName(condition, checks)}</span>
               <span className="condition-sub">{status(condition).text}</span>
@@ -515,6 +518,7 @@ function ConditionsCard({
               className="pick"
             >
               <Icon name="check" />
+              <ConditionIcon condition={condition} size={16} />
               <span className="condition-text">
                 <span className="condition-name">{fullName(condition, checks)}</span>
                 <span className="condition-sub">On every job</span>
@@ -538,6 +542,7 @@ function ConditionsCard({
                 <span className={on ? undefined : 'invisible'}>
                   <Icon name="check" />
                 </span>
+                <ConditionIcon condition={condition} size={16} />
                 <span className="condition-text">
                   <span className="condition-name">{fullName(condition, checks)}</span>
                   <span className={`condition-sub${isBuiltIn(condition) ? '' : ' mono'}`}>

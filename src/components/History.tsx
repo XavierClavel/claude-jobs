@@ -230,6 +230,19 @@ function Run({ detail, timeout }: { detail: RunDetail; timeout: number }) {
           <pre className={failed(detail.status) ? 'pre-bad' : undefined}>{errors}</pre>
         </section>
       )}
+      {detail.actions.length > 0 && (
+        <section className="stack" aria-label="Actions">
+          <div className="lbl">Actions</div>
+          {detail.actions.map((done) => (
+            <div key={done.action} className="action-result">
+              <span className={`dot dot-${done.error ? 'bad' : 'ok'}`} />
+              <span>
+                <strong>{done.name}</strong> · {done.error ?? 'sent'}
+              </span>
+            </div>
+          ))}
+        </section>
+      )}
     </article>
   )
 }

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import { actionName, OUTCOMES } from '../actions'
 import { api } from '../api'
 import { type Checks, conditionState, fullName, required } from '../conditions'
+import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
 import type { Trigger } from '../domain/Trigger'
@@ -15,7 +17,9 @@ import {
   when,
 } from '../format'
 import { isRunning, unmetOf } from '../jobs'
+import { ActionIcon } from './ActionIcon'
 import { Chip, runTone } from './Chip'
+import { ConditionIcon } from './ConditionIcon'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 
@@ -30,6 +34,7 @@ const RECENT = 5
 export function JobDetail({
   job,
   checks,
+  actions,
   onRun,
   onToggle,
   onEdit,
@@ -38,6 +43,7 @@ export function JobDetail({
 }: {
   job: JobView
   checks: Checks
+  actions: Action[]
   onRun: () => void
   onToggle: () => void
   onEdit: () => void
@@ -179,11 +185,29 @@ export function JobDetail({
                   return (
                     <span key={condition} className="inline">
                       <span className={`dot dot-${met === null ? 'muted' : met ? 'ok' : 'warn'}`} />
+                      <ConditionIcon condition={condition} />
                       {fullName(condition, checks)}
                     </span>
                   )
                 })}
               </dd>
+              {OUTCOMES.map(([outcome, label]) => (
+                <Fragment key={outcome}>
+                  <dt>{label}</dt>
+                  <dd className="tags">
+                    {job[outcome].length === 0 ? (
+                      <span className="muted">Nothing</span>
+                    ) : (
+                      job[outcome].map((id) => (
+                        <span key={id} className="tag with-icon">
+                          <PickedIcon id={id} actions={actions} />
+                          {actionName(id, actions)}
+                        </span>
+                      ))
+                    )}
+                  </dd>
+                </Fragment>
+              ))}
             </dl>
           </section>
         </div>
@@ -271,4 +295,10 @@ function RunsTable({ runs, onOpen }: { runs: RunRecord[]; onOpen: (run: RunRecor
       </tbody>
     </table>
   )
+}
+
+// The mark of a job's action, none when it no longer exists.
+function PickedIcon({ id, actions }: { id: string; actions: Action[] }) {
+  const action = actions.find((a) => a.id === id)
+  return action ? <ActionIcon action={action} size={12} /> : null
 }

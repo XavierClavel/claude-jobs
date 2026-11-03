@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Checks } from '../conditions'
 import type { JobView } from '../domain/JobView'
-import { gcloudOut, job, run, signedIn } from '../test/fixtures'
+import { action, gcloudOut, job, run, signedIn } from '../test/fixtures'
 import { Sidebar } from './Sidebar'
 
 const noop = () => {}
@@ -14,13 +14,16 @@ function sidebar(jobs: JobView[], checks: Checks = signedIn, more = {}) {
       jobs={jobs}
       selected={null}
       conditionsOpen={false}
+      actionsOpen={false}
       editing={false}
       checks={checks}
       actions={{ onSignIn: noop, onCheck: () => Promise.resolve() }}
+      actionList={[]}
       onCheckUpdate={() => Promise.resolve(true)}
       onNew={noop}
       onSelect={noop}
       onConditions={noop}
+      onActions={noop}
       onOverview={noop}
       {...more}
     />,
@@ -70,6 +73,16 @@ describe('Sidebar', () => {
     expect(conditions.getByText('signed in')).toBeInTheDocument()
     await userEvent.click(conditions.getByRole('button', { name: 'Sign in' }))
     expect(onSignIn).toHaveBeenCalledWith('gcloud')
+  })
+
+  it('lists the actions, and opens them', async () => {
+    const onActions = vi.fn()
+    sidebar([job()], signedIn, { actionList: [action()], onActions })
+    const actions = within(screen.getByRole('region', { name: 'Actions' }))
+    expect(actions.getByText('Ops channel')).toBeInTheDocument()
+    expect(actions.getByText('channel')).toBeInTheDocument()
+    await userEvent.click(actions.getByRole('button', { name: 'Manage' }))
+    expect(onActions).toHaveBeenCalledOnce()
   })
 
   it('leaves Google Cloud out when no job needs it and gcloud is not there', () => {

@@ -1,4 +1,5 @@
 import type { Checks } from '../conditions'
+import type { Action } from '../domain/Action'
 import type { CommandConditionView } from '../domain/CommandConditionView'
 import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
@@ -23,6 +24,9 @@ export function job(overrides: Partial<JobView> = {}): JobView {
     interactive: false,
     chrome: false,
     conditions: [],
+    on_success: [],
+    on_failure: [],
+    on_complete: [],
     label: 'com.claude-jobs.photobook-monitor',
     loaded: true,
     next_run: '2026-10-27T09:00:00+01:00',
@@ -53,6 +57,7 @@ export function run(overrides: Partial<RunRecord> = {}): RunRecord {
     prompt: '/photobook-monitor',
     interactive: false,
     tmux_session: null,
+    actions: [],
     ...overrides,
   }
 }
@@ -84,6 +89,20 @@ export function command(overrides: Partial<CommandConditionView> = {}): CommandC
     hint: 'Connect to the VPN',
     problem: null,
     checked_at: '2026-10-31T09:00:00Z',
+    ...overrides,
+  }
+}
+
+export function action(overrides: Partial<Action> = {}): Action {
+  return {
+    id: 'ops',
+    name: 'Ops channel',
+    target: {
+      kind: 'slack',
+      webhook_url: 'https://hooks.slack.com/triggers/T0123/456/s3cr3t',
+      to: 'channel',
+      recipient: 'C0123ABCD',
+    },
     ...overrides,
   }
 }

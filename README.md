@@ -49,6 +49,36 @@ such as "Connect to the VPN", is what a job waiting for it says, with what the c
 The last check of each condition is kept in `conditions.json`, 5 minutes for Google Cloud and a minute for the others,
 for the window and `claude-jobs status`; a waiting run always checks again.
 
+## Actions
+
+A job can do something when a run ends: its **On success** actions when the run worked, its **On failure** actions when
+it failed or timed out, and its **On complete** actions either way (an interrupted run has no runner left to take
+them). An action in two of a job's lists is sent once per run. Actions are made once, on the **Actions**
+page (**Manage**, under the conditions), and each job picks its own in the editor, under **When it ends**.
+
+The one kind so far starts a Slack workflow, which sends the message to a user or a channel. In Workflow Builder
+(a paid Slack plan), start a workflow **From a webhook** with the variables its message uses, add the step **Send a
+message to a person** (or **to a channel**) to the `user` (or `channel`) variable with `text` as its message, publish
+it, and paste its web request URL in the action, with the user's or the channel's Slack ID: a user's is under **⋮ →
+Copy member ID** in their profile, a channel's at the bottom of its details. The editor lists the variables:
+
+| Key                 | Data type             | What it holds                                                                                         |
+| ------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `user` or `channel` | User ID or Channel ID | Who gets the message, the ID set in the action                                                        |
+| `text`              | Text                  | The whole message: the summary, then the result                                                       |
+| `summary`           | Text                  | How the run went, in a line: `✅ Photobook monitor finished · 2 min 3 s · $0.55`                      |
+| `result`            | Text                  | Claude's result, its Markdown written to read well in Slack and cut at 3,000 characters, or the error |
+| `job`               | Text                  | The job's name                                                                                        |
+| `status`            | Text                  | `OK`, `Failed` or `Timed out`                                                                         |
+
+Every message sends all of them, since a workflow fails on a variable it declares and does not get; it uses those it
+declares. **Send test** starts the workflow with test values, before the action is saved too.
+
+The messages go out once the run is recorded as ended, each with 15 seconds to get an answer. What each action did is
+kept in the run's record, in `actions`, and shown in its history; a message that did not go out shows under **Needs
+attention**. Actions are kept in `actions.json`, which only you can read, since anyone with a webhook's URL can start
+the workflow. Deleting one takes it off the jobs that used it.
+
 ## Requirements
 
 - Claude Code, signed in (run `claude` once).
@@ -93,8 +123,10 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 
 - `jobs.json`: the jobs.
 - `conditions.json`: the last check of each condition (see Conditions).
-- `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id), with
-  `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside it. The last 100 runs are kept.
+- `actions.json`: what jobs can do when a run ends, with their Slack workflows' webhooks (see Actions).
+- `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id, what its
+  actions did), with `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside it. The last 100 runs are
+  kept.
 - `logs/<job>.launchd.log`: what the runner itself printed.
 - `workspace/`: the working folder of jobs that need no particular one, empty (see Interactive jobs).
 
@@ -115,7 +147,8 @@ Claude Jobs widget uses `status` and `watch`:
 - `claude-jobs save` creates or changes a job from JSON on stdin, like **Save** in the editor, and prints it the way
   `status` lists it. The fields are a job's in `jobs.json`. A new job needs `id`, `name`, `prompt`, `hour` and `minute`;
   the others get the editor's defaults, such as the working folder `~/.claude-jobs/workspace`. For an existing `id`,
-  the fields given replace the job's and the others stay. A field it does not know is refused, not dropped.
+  the fields given replace the job's and the others stay. A field it does not know is refused, not dropped, and so is
+  an id in `conditions`, `on_success`, `on_failure` or `on_complete` that names nothing.
 
   ```sh
   claude-jobs save <<'EOF'

@@ -26,6 +26,10 @@ export type Draft = {
   chrome: boolean
   // What the job needs on top of Claude Code signed in, which every job needs.
   conditions: string[]
+  // The ids of the actions it takes when a run ends.
+  onSuccess: string[]
+  onFailure: string[]
+  onComplete: string[]
 }
 
 export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
@@ -48,6 +52,9 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     interactive: job?.interactive ?? false,
     chrome: job?.chrome ?? false,
     conditions: job?.conditions ?? [],
+    onSuccess: job?.on_success ?? [],
+    onFailure: job?.on_failure ?? [],
+    onComplete: job?.on_complete ?? [],
   }
 }
 
@@ -94,5 +101,8 @@ export function toJob(draft: Draft): Job {
     interactive: draft.interactive,
     chrome: draft.chrome,
     conditions: draft.conditions,
+    on_success: draft.onSuccess,
+    on_failure: draft.onFailure,
+    on_complete: draft.onComplete,
   }
 }

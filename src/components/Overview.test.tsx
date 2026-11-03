@@ -72,6 +72,26 @@ describe('needsAttention', () => {
     expect(items).toEqual([])
   })
 
+  it('names a run whose message did not send', () => {
+    const items = needsAttention(
+      [
+        job({
+          name: 'Nightly tests',
+          last_run: run({
+            actions: [
+              { action: 'ops', name: 'Ops channel', error: 'Slack refused the message (404).' },
+              { action: 'me', name: 'Me', error: null },
+            ],
+          }),
+        }),
+      ],
+      signedIn,
+    )
+    expect(items.map((i) => [i.title, i.text])).toEqual([
+      ['Nightly tests: Ops channel did not send', 'Slack refused the message (404).'],
+    ])
+  })
+
   it('has nothing to say when all is well', () => {
     expect(needsAttention([job()], signedIn)).toEqual([])
   })

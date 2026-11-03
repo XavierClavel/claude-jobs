@@ -7,9 +7,12 @@ import {
   shownConditions,
   waitsFor,
 } from '../conditions'
+import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
 import { day, midSentence, STATUS_LABEL, scheduleShort } from '../format'
 import { failed, isRunning, jobTone, unmetOf } from '../jobs'
+import { ActionIcon } from './ActionIcon'
+import { ConditionIcon } from './ConditionIcon'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 import { UpdateCheck } from './UpdateCheck'
@@ -40,27 +43,34 @@ export function Sidebar({
   jobs,
   selected,
   conditionsOpen,
+  actionsOpen,
   editing,
   checks,
   actions,
+  actionList,
   onCheckUpdate,
   onNew,
   onSelect,
   onConditions,
+  onActions,
   onOverview,
 }: {
   version: string | null
   jobs: JobView[] | null
   selected: string | null
   conditionsOpen: boolean
+  actionsOpen: boolean
   // The editor has the pane: the rest waits for Save or Cancel.
   editing: boolean
   checks: Checks
   actions: CheckActions
+  // What jobs can do when a run ends.
+  actionList: Action[]
   onCheckUpdate: () => Promise<boolean>
   onNew: () => void
   onSelect: (id: string) => void
   onConditions: () => void
+  onActions: () => void
   onOverview: () => void
 }) {
   return (
@@ -123,6 +133,7 @@ export function Sidebar({
               <span
                 className={`dot dot-${state.met === null ? 'muted' : state.met ? 'ok' : 'warn'}`}
               />
+              <ConditionIcon condition={condition} size={13} />
               <span className="side-condition-name">{shortName(condition, checks)}</span>
               {signIn && !conditionsOpen ? (
                 <button
@@ -139,6 +150,33 @@ export function Sidebar({
             </div>
           )
         })}
+      </section>
+      <section
+        aria-label="Actions"
+        className={`side-conditions${actionsOpen ? ' selected' : ''}`}
+        inert={editing}
+      >
+        <div className="side-conditions-head">
+          <span className="lbl">Actions</span>
+          {actionsOpen ? (
+            <span className="link">Managing</span>
+          ) : (
+            <button type="button" className="link" onClick={onActions}>
+              Manage
+            </button>
+          )}
+        </div>
+        {actionList.length === 0 ? (
+          <span className="muted small-text">None yet · a Slack message when a run ends</span>
+        ) : (
+          actionList.map((action) => (
+            <div key={action.id} className="side-condition">
+              <ActionIcon action={action} size={13} />
+              <span className="side-condition-name">{action.name}</span>
+              <span className="muted small-text">{action.target.to}</span>
+            </div>
+          ))
+        )}
       </section>
     </aside>
   )

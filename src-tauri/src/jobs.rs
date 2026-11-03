@@ -52,6 +52,15 @@ pub struct Job {
     /// command condition's id. See `conditions`.
     #[serde(default)]
     pub conditions: Vec<String>,
+    /// What to do when a run goes well: ids of the actions in `actions.json`. See `actions`.
+    #[serde(default)]
+    pub on_success: Vec<String>,
+    /// What to do when a run fails or times out.
+    #[serde(default)]
+    pub on_failure: Vec<String>,
+    /// What to do when a run ends, however it went: on top of `on_success` or `on_failure`.
+    #[serde(default)]
+    pub on_complete: Vec<String>,
 }
 
 fn default_timeout() -> u32 {
@@ -217,6 +226,10 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
     job.conditions.retain(|c| c != CLAUDE);
     job.conditions.sort_unstable();
     job.conditions.dedup();
+    for actions in [&mut job.on_success, &mut job.on_failure, &mut job.on_complete] {
+        actions.sort_unstable();
+        actions.dedup();
+    }
     // Only a day after the 28th can be missing from a month.
     job.last_day_fallback &= job.month_days.iter().any(|&d| d > 28);
     if !(1..=240).contains(&job.timeout_minutes) {
@@ -288,6 +301,9 @@ mod tests {
             interactive: false,
             chrome: false,
             conditions: vec![],
+            on_success: vec![],
+            on_failure: vec![],
+            on_complete: vec![],
         }
     }
 
@@ -344,6 +360,20 @@ mod tests {
         let mut input = job("gcloud");
         input.conditions = vec!["gcloud".into(), "claude".into(), "gcloud".into()];
         assert_eq!(validate(input, &[], None).expect("valid").conditions, vec!["gcloud".to_string()]);
+    }
+
+    #[test]
+    fn validate_sorts_the_actions_and_drops_repeats() {
+        let input = Job {
+            on_success: vec!["me".into(), "ops".into(), "me".into()],
+            on_failure: vec!["ops".into()],
+            ..job("daily")
+        };
+        let out = validate(input, &[], None).expect("valid");
+        assert_eq!(
+            (out.on_success, out.on_failure),
+            (vec!["me".to_string(), "ops".to_string()], vec!["ops".to_string()])
+        );
     }
 
     #[test]
