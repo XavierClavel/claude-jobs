@@ -18,3 +18,7 @@ macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with lau
 - A dev build never checks for or installs an update. To release, bump `version` in `package.json` and merge to main:
   `.github/workflows/release.yml` runs `pnpm release` for a version with no release yet. `pnpm release --dry-run`
   builds locally without publishing (it needs the signing key in `~/.tauri/claude-jobs.key`).
+- Always bump the version in every branch that changes the app, so its merge to main publishes a release: `version` in
+  `package.json`, `src-tauri/Cargo.toml` and the `claude-jobs` entry of `src-tauri/Cargo.lock`, all the same. Patch for
+  a `fix:`, minor for a `feat:`, from main's current version: if another branch bumped main first, bump again past it,
+  or the merge finds its version already released and publishes nothing. Docs- or CI-only changes need no bump.
