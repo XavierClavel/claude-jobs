@@ -344,6 +344,7 @@ function CommandCard({
     >
       <div className="cond-main">
         <div className="inline wrap">
+          <ConditionIcon condition={command.id} size={18} />
           <h2>{command.name}</h2>
           <StateChip met={state.met} />
           <span className="tag">Command · {command.every_job ? 'every job' : 'per job'}</span>
