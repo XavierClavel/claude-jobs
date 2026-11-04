@@ -10,6 +10,7 @@ import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
+import type { Repo } from './domain/Repo'
 import type { RunDetail } from './domain/RunDetail'
 import type { RunRecord } from './domain/RunRecord'
 import type { Skill } from './domain/Skill'
@@ -36,6 +37,7 @@ export const api = {
   deleteCondition: (id: string) => invoke<void>('delete_condition', { id }),
   checkCondition: (condition: CommandCondition) =>
     invoke<CommandCheck>('check_condition', { condition }),
+  listRepos: (path: string) => invoke<Repo[]>('list_repos', { path }),
   listActions: () => invoke<Action[]>('list_actions'),
   saveAction: (action: Action, editing: string | null) =>
     invoke<Action>('save_action', { action, editing }),

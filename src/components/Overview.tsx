@@ -67,7 +67,8 @@ export function Overview({
           <div className="empty">
             <p>No jobs yet.</p>
             <p className="muted">
-              A job runs a Claude Code prompt on a schedule, like /photobook-monitor every morning.
+              A job runs a Claude Code prompt on a schedule, like /photobook-monitor every morning,
+              or when a pull request is opened or merged.
             </p>
           </div>
         ) : (
@@ -187,7 +188,7 @@ export function Overview({
                         <div className="att-name">{item.title}</div>
                         <div className="att-sub">{item.text}</div>
                       </div>
-                      {item.kind !== 'launchd' && item.job.last_run ? (
+                      {item.kind !== 'launchd' && item.kind !== 'watch' && item.job.last_run ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -220,7 +221,7 @@ const timeOf = (iso: string) => {
 
 type Attention =
   | { kind: 'condition'; condition: string; title: string; text: string; canSignIn: boolean }
-  | { kind: 'run' | 'action' | 'launchd'; job: JobView; title: string; text: string }
+  | { kind: 'run' | 'action' | 'launchd' | 'watch'; job: JobView; title: string; text: string }
 
 export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
   const items: Attention[] = []
@@ -248,6 +249,14 @@ export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
         job,
         title: `${job.name} is not loaded in launchd`,
         text: 'It will not start on its schedule. Saving it again reloads it.',
+      })
+    const problem = job.enabled ? job.watch?.problem : null
+    if (problem)
+      items.push({
+        kind: 'watch',
+        job,
+        title: `${job.name} cannot check its pull requests`,
+        text: problem,
       })
     const last = job.last_run
     if (last && failed(last.status))

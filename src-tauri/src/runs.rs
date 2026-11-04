@@ -1,6 +1,7 @@
 //! Run history: one `<run>.json` per run in `~/.claude-jobs/runs/<job>/`, with Claude's output and errors beside it.
 
 use crate::actions::ActionResult;
+use crate::events::PullRequest;
 use crate::{jobs, paths};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -32,6 +33,9 @@ pub enum Trigger {
     /// Started at login for a scheduled time the Mac was off for.
     #[serde(rename = "catch-up")]
     CatchUp,
+    /// Started for a pull request opened in a repository the job watches: see `events`.
+    #[serde(rename = "pull-request")]
+    PullRequest,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
@@ -72,6 +76,9 @@ pub struct RunRecord {
     /// What the job's actions did once the run ended: see `actions`.
     #[serde(default)]
     pub actions: Vec<ActionResult>,
+    /// The pull request the run was started for, which its prompt ends with.
+    #[serde(default)]
+    pub pull_request: Option<PullRequest>,
 }
 
 /// A run waiting for its job's conditions, kept in `runs/<job>/waiting.json` while its runner is alive. It is not in

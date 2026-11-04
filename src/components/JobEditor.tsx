@@ -11,6 +11,7 @@ import {
 } from '../conditions'
 import type { Action } from '../domain/Action'
 import type { Defaults } from '../domain/Defaults'
+import type { EventKind } from '../domain/EventKind'
 import type { JobView } from '../domain/JobView'
 import type { Skill } from '../domain/Skill'
 import type { TmuxStatus } from '../domain/TmuxStatus'
@@ -19,6 +20,7 @@ import {
   draftErrors,
   hasShortMonths,
   type Repeat,
+  type Starts,
   toDraft,
   toJob,
   withRepeat,
@@ -28,6 +30,7 @@ import { AfterRunCard } from './AfterRunCard'
 import { ConditionIcon } from './ConditionIcon'
 import { Icon } from './Icon'
 import { PromptField } from './PromptField'
+import { RepoPicker } from './RepoPicker'
 import { Switch } from './Switch'
 import { TmuxNotice } from './TmuxNotice'
 import { useDismiss } from './useDismiss'
@@ -36,6 +39,16 @@ const REPEATS: [Repeat, string][] = [
   ['daily', 'Daily'],
   ['weekly', 'Weekly'],
   ['monthly', 'Monthly'],
+]
+
+const STARTS: [Starts, string][] = [
+  ['schedule', 'On a schedule'],
+  ['trigger', 'On trigger'],
+]
+
+const TRIGGERS: [EventKind, string][] = [
+  ['pull_request_opened', 'Pull request opened'],
+  ['pull_request_merged', 'Pull request merged'],
 ]
 
 export function JobEditor({
@@ -156,7 +169,9 @@ export function JobEditor({
           <span className="muted">
             {job
               ? `${scheduleText(job)} · saving reloads its launchd agent`
-              : 'Saving gives it a launchd agent, which starts it on its schedule'}
+              : draft.starts === 'trigger'
+                ? 'Saving starts watching its repositories'
+                : 'Saving gives it a launchd agent, which starts it on its schedule'}
           </span>
         </div>
         <div className="actions">
@@ -213,86 +228,114 @@ export function JobEditor({
           </section>
 
           <fieldset className="card">
-            <legend className="lbl">Schedule</legend>
-            <div className="inline wrap gap-16">
-              <div className="segmented" role="radiogroup" aria-label="Repeat">
-                {REPEATS.map(([value, name]) => (
-                  <label key={value}>
-                    <input
-                      type="radio"
-                      name="repeat"
-                      checked={draft.repeat === value}
-                      onChange={() => setDraft((d) => withRepeat(d, value))}
-                    />
-                    {name}
-                  </label>
-                ))}
-              </div>
-              <label className="field inline">
-                at
-                <input
-                  type="time"
-                  className="time"
-                  aria-label="Time"
-                  value={draft.time}
-                  required
-                  onChange={(e) => set('time', e.target.value)}
-                />
-              </label>
-            </div>
-            {draft.repeat === 'weekly' && (
-              <fieldset className="toggles" aria-label="Days of the week">
-                {DAYS.map((name, i) => (
-                  <label key={name} className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={draft.weekdays.includes(i + 1)}
-                      onChange={() => toggleDay('weekdays', i + 1)}
-                    />
-                    {name}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            {draft.repeat === 'monthly' && (
-              <fieldset className="toggles month-days" aria-label="Days of the month">
-                {MONTH_DAYS.map((day) => (
-                  <label key={day} className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={draft.monthDays.includes(day)}
-                      onChange={() => toggleDay('monthDays', day)}
-                    />
-                    {day}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            <p className="hint inline">
-              <Icon name="clock" />
-              <span>{schedule}</span>
-            </p>
-            {draft.repeat === 'monthly' && hasShortMonths(draft.monthDays) && (
-              <>
-                <label className="check">
+            <legend className="lbl">Starts</legend>
+            <div className="segmented wide" role="radiogroup" aria-label="Starts">
+              {STARTS.map(([value, name]) => (
+                <label key={value}>
                   <input
-                    type="checkbox"
-                    checked={draft.lastDay}
-                    onChange={(e) => set('lastDay', e.target.checked)}
+                    type="radio"
+                    name="starts"
+                    checked={draft.starts === value}
+                    onChange={() => set('starts', value)}
                   />
-                  Run on the last day of shorter months
+                  {name}
                 </label>
+              ))}
+            </div>
+            {draft.starts === 'trigger' ? (
+              <PullRequestFields
+                kind={draft.trigger}
+                onKind={(v) => set('trigger', v)}
+                repos={draft.repos}
+                path={draft.path.trim()}
+                mine={draft.mine}
+                summary={schedule}
+                onRepos={(v) => set('repos', v)}
+                onMine={(v) => set('mine', v)}
+              />
+            ) : (
+              <>
+                <div className="inline wrap gap-16">
+                  <div className="segmented" role="radiogroup" aria-label="Repeat">
+                    {REPEATS.map(([value, name]) => (
+                      <label key={value}>
+                        <input
+                          type="radio"
+                          name="repeat"
+                          checked={draft.repeat === value}
+                          onChange={() => setDraft((d) => withRepeat(d, value))}
+                        />
+                        {name}
+                      </label>
+                    ))}
+                  </div>
+                  <label className="field inline">
+                    at
+                    <input
+                      type="time"
+                      className="time"
+                      aria-label="Time"
+                      value={draft.time}
+                      required
+                      onChange={(e) => set('time', e.target.value)}
+                    />
+                  </label>
+                </div>
+                {draft.repeat === 'weekly' && (
+                  <fieldset className="toggles" aria-label="Days of the week">
+                    {DAYS.map((name, i) => (
+                      <label key={name} className="toggle">
+                        <input
+                          type="checkbox"
+                          checked={draft.weekdays.includes(i + 1)}
+                          onChange={() => toggleDay('weekdays', i + 1)}
+                        />
+                        {name}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {draft.repeat === 'monthly' && (
+                  <fieldset className="toggles month-days" aria-label="Days of the month">
+                    {MONTH_DAYS.map((day) => (
+                      <label key={day} className="toggle">
+                        <input
+                          type="checkbox"
+                          checked={draft.monthDays.includes(day)}
+                          onChange={() => toggleDay('monthDays', day)}
+                        />
+                        {day}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                <p className="hint inline">
+                  <Icon name="clock" />
+                  <span>{schedule}</span>
+                </p>
+                {draft.repeat === 'monthly' && hasShortMonths(draft.monthDays) && (
+                  <>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={draft.lastDay}
+                        onChange={(e) => set('lastDay', e.target.checked)}
+                      />
+                      Run on the last day of shorter months
+                    </label>
+                    <p className="hint">
+                      {draft.lastDay
+                        ? 'A job on the 31st runs on 30 April, and on 28 February (29 in a leap year).'
+                        : 'Otherwise a month without one of these days skips it: a job on the 31st does not run in April.'}
+                    </p>
+                  </>
+                )}
                 <p className="hint">
-                  {draft.lastDay
-                    ? 'A job on the 31st runs on 30 April, and on 28 February (29 in a leap year).'
-                    : 'Otherwise a month without one of these days skips it: a job on the 31st does not run in April.'}
+                  A missed time runs when the Mac wakes; a login catches up what was missed in the
+                  last day.
                 </p>
               </>
             )}
-            <p className="hint">
-              A missed time runs when the Mac wakes; a login catches up what was missed in the last
-              day.
-            </p>
           </fieldset>
 
           <section className="card">
@@ -413,6 +456,62 @@ export function JobEditor({
         </div>
       </div>
     </form>
+  )
+}
+
+// Which pull requests start the job: opened or merged, in which repositories, and whose.
+function PullRequestFields({
+  kind,
+  onKind,
+  repos,
+  path,
+  mine,
+  summary,
+  onRepos,
+  onMine,
+}: {
+  kind: EventKind
+  onKind: (kind: EventKind) => void
+  repos: string[]
+  // The job's PATH, where the GitHub CLI is found.
+  path: string
+  mine: boolean
+  summary: string
+  onRepos: (repos: string[]) => void
+  onMine: (mine: boolean) => void
+}) {
+  const verb = kind === 'pull_request_merged' ? 'merged' : 'opened'
+  return (
+    <>
+      <div className="segmented wide" role="radiogroup" aria-label="Trigger">
+        {TRIGGERS.map(([value, name]) => (
+          <label key={value}>
+            <input
+              type="radio"
+              name="trigger"
+              checked={kind === value}
+              onChange={() => onKind(value)}
+            />
+            {name}
+          </label>
+        ))}
+      </div>
+      <RepoPicker picked={repos} path={path} onChange={onRepos} />
+      <label className="check">
+        <input type="checkbox" checked={mine} onChange={(e) => onMine(e.target.checked)} />
+        Only my pull requests
+      </label>
+      <p className="hint inline">
+        <Icon name="clock" />
+        <span>{summary}</span>
+      </p>
+      <p className="hint">
+        Checked every minute with the GitHub CLI (<span className="mono">gh</span>), signed in as
+        you. Each pull request {verb} from now on starts one run, with its link, title and branches
+        after the prompt: a skill gets them as its arguments. One {verb} while the job runs starts
+        it once that run ends.
+      </p>
+    </>
   )
 }
 

@@ -2,6 +2,7 @@
 //! button of the same name does, so the two never disagree about a job.
 
 use crate::commands::{self, ApiError, JobView};
+use crate::events;
 use crate::jobs::{self, Job};
 use crate::runs::{self, RunRecord};
 use crate::schedule;
@@ -52,8 +53,9 @@ pub fn status() -> i32 {
 }
 
 /// `claude-jobs save`: creates or changes a job from JSON on stdin, like **Save** in the editor, and prints it the way
-/// `status` lists it. A new job needs `id`, `name`, `prompt`, `hour` and `minute`, and gets the editor's defaults for
-/// the rest. For an existing id, the fields given replace the job's and the others stay as they are.
+/// `status` lists it. A new job needs `id`, `name`, `prompt`, and `hour` and `minute` unless a trigger starts it
+/// (`event`), and gets the editor's defaults for the rest. For an existing id, the fields given replace the job's and
+/// the others stay as they are.
 pub fn save() -> i32 {
     let mut input = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut input) {
@@ -83,6 +85,11 @@ fn job_from_input(input: &str, existing: &[Job]) -> Result<(Job, Option<String>)
         None => serde_json::Map::new(),
     };
     merged.extend(fields.clone());
+    // A job a trigger starts never uses its time, but jobs.json keeps one: the editor's.
+    if merged.get("event").is_some_and(|e| !e.is_null()) {
+        merged.entry("hour").or_insert(9.into());
+        merged.entry("minute").or_insert(0.into());
+    }
     let job: Job = serde_json::from_value(Value::Object(merged)).map_err(|e| format!("The job does not fit: {e}"))?;
     // serde skips fields it does not know, so a misspelt one would be lost without a word.
     let known = serde_json::to_value(&job).map_err(|e| e.to_string())?;
@@ -100,6 +107,16 @@ fn print_json<T: Serialize>(value: &T) -> i32 {
             0
         }
         Err(e) => fail(e.to_string().into()),
+    }
+}
+
+/// `claude-jobs repos`: the repositories a trigger can watch, those your GitHub account can see, most recently pushed
+/// first, as JSON on stdout: the editor's picker.
+pub fn repos() -> i32 {
+    let found = commands::check_path().and_then(|path| events::list_repos(&path).map_err(ApiError::from));
+    match found {
+        Ok(repos) => print_json(&repos),
+        Err(e) => fail(e),
     }
 }
 
@@ -151,6 +168,7 @@ mod tests {
                 condition: CLAUDE.to_string(),
                 problem: Some(CLAUDE_EXPIRED.into()),
             }],
+            watch: None,
         };
         let previous_run = Some("2026-10-29T09:00:00+01:00".into());
         let status =
@@ -181,7 +199,20 @@ mod tests {
         let (job, editing) = job_from_input(NEW_JOB, &[]).expect("valid");
         assert_eq!(editing, None);
         assert_eq!((job.id.as_str(), job.hour, job.timeout_minutes, job.enabled), ("j", 9, 30, true));
-        assert!(!job.chrome && job.cwd.is_empty());
+        assert!(!job.chrome && job.cwd.is_empty() && job.event.is_none());
+        // A job a trigger starts needs no time.
+        let watching = r#"{"id": "j", "name": "J", "prompt": "/j",
+            "event": {"kind": "pull_request_merged", "repos": ["o/a"]}}"#;
+        let (job, _) = job_from_input(watching, &[]).expect("valid");
+        assert_eq!((job.hour, job.minute), (9, 0));
+        assert_eq!(
+            job.event,
+            Some(crate::events::Event {
+                kind: crate::events::EventKind::PullRequestMerged,
+                repos: vec!["o/a".into()],
+                mine: true
+            })
+        );
     }
 
     #[test]
@@ -193,6 +224,19 @@ mod tests {
         assert_eq!(editing.as_deref(), Some("j"));
         assert!(!job.enabled && job.chrome);
         assert_eq!((job.prompt.as_str(), job.allowed_tools.clone()), ("/j", vec!["Read".to_string()]));
+    }
+
+    #[test]
+    fn save_moves_a_job_between_a_schedule_and_a_trigger() {
+        let (scheduled, _) = job_from_input(NEW_JOB, &[]).expect("valid");
+        let input = r#"{"id": "j", "event": {"kind": "pull_request_opened", "repos": ["o/a"], "mine": false}}"#;
+        let (triggered, _) = job_from_input(input, &[scheduled]).expect("valid");
+        assert!(triggered.event.as_ref().is_some_and(|e| !e.mine));
+        let (back, _) = job_from_input(r#"{"id": "j", "event": null, "hour": 7}"#, &[triggered]).expect("valid");
+        assert_eq!((back.event, back.hour), (None, 7));
+        assert!(job_from_input(r#"{"id": "j", "name": "J", "prompt": "/j"}"#, &[]).unwrap_err().contains("hour"));
+        let unknown = r#"{"id": "j", "name": "J", "prompt": "/j", "event": {"kind": "issue_opened", "repos": []}}"#;
+        assert!(job_from_input(unknown, &[]).unwrap_err().contains("issue_opened"));
     }
 
     #[test]

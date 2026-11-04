@@ -1,14 +1,21 @@
 import type { Defaults } from './domain/Defaults'
+import type { EventKind } from './domain/EventKind'
 import type { Job } from './domain/Job'
 import { clock } from './format'
 
 export type Repeat = 'daily' | 'weekly' | 'monthly'
+
+// What starts the job: its schedule, or a trigger, such as a pull request opened in a repository it watches.
+export type Starts = 'schedule' | 'trigger'
 
 // What the editor's fields hold: text, as typed. `toJob` turns it into the job the Rust side validates.
 export type Draft = {
   name: string
   id: string
   prompt: string
+  starts: Starts
+  // Which trigger, kept while the schedule is picked.
+  trigger: EventKind
   time: string
   timeout: string
   repeat: Repeat
@@ -16,6 +23,10 @@ export type Draft = {
   weekdays: number[]
   monthDays: number[]
   lastDay: boolean
+  // The repositories a pull request job watches, `owner/name`, and whether only your pull requests start it. Kept
+  // while the schedule is picked, so switching back restores them.
+  repos: string[]
+  mine: boolean
   tools: string
   cwd: string
   model: string
@@ -37,12 +48,16 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     name: job?.name ?? '',
     id: job?.id ?? '',
     prompt: job?.prompt ?? '',
+    starts: job?.event ? 'trigger' : 'schedule',
+    trigger: job?.event?.kind ?? 'pull_request_opened',
     time: job ? clock(job.hour, job.minute) : '09:00',
     timeout: String(job?.timeout_minutes ?? 30),
     repeat: job?.month_days.length ? 'monthly' : job?.weekdays.length ? 'weekly' : 'daily',
     weekdays: job?.weekdays ?? [],
     monthDays: job?.month_days ?? [],
     lastDay: job?.last_day_fallback ?? false,
+    repos: job?.event?.repos ?? [],
+    mine: job?.event?.mine ?? true,
     tools: job?.allowed_tools.join('\n') ?? '',
     cwd: job?.cwd ?? defaults?.cwd ?? '',
     model: job?.model ?? '',
@@ -67,6 +82,7 @@ export function withRepeat(draft: Draft, repeat: Repeat): Draft {
 
 // The Rust side reads no day as every day, so a repeat left without a day has to be caught here.
 export function draftErrors(draft: Draft): string[] {
+  if (draft.starts === 'trigger') return draft.repos.length ? [] : ['Add a repository to watch.']
   if (draft.repeat === 'weekly' && !draft.weekdays.length)
     return ['Pick at least one day of the week.']
   if (draft.repeat === 'monthly' && !draft.monthDays.length)
@@ -104,5 +120,9 @@ export function toJob(draft: Draft): Job {
     on_success: draft.onSuccess,
     on_failure: draft.onFailure,
     on_complete: draft.onComplete,
+    event:
+      draft.starts === 'trigger'
+        ? { kind: draft.trigger, repos: draft.repos, mine: draft.mine }
+        : null,
   }
 }

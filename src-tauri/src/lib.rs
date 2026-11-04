@@ -2,6 +2,7 @@ pub mod actions;
 pub mod cli;
 pub mod commands;
 pub mod conditions;
+pub mod events;
 pub mod gcloud;
 pub mod interactive;
 pub mod jobs;
@@ -43,6 +44,7 @@ pub fn run() {
             commands::save_condition,
             commands::delete_condition,
             commands::check_condition,
+            commands::list_repos,
             commands::list_actions,
             commands::save_action,
             commands::delete_action,

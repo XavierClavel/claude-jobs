@@ -2,6 +2,7 @@
 
 use crate::actions;
 use crate::conditions::{self, ConditionStatus, CLAUDE_EXPIRED};
+use crate::events::{self, PullRequest};
 use crate::jobs::{self, Job};
 use crate::runs::{self, RunRecord, RunStatus, Trigger, Waiting};
 use crate::{paths, schedule};
@@ -63,7 +64,8 @@ pub fn apply_verdict(rec: &mut RunRecord) {
 }
 
 /// Exit codes for launchd's log: 0 ok, 1 the run failed, 2 no such job, 3 already running.
-pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
+/// `pull_request` is the one a run started for a pull request goes with.
+pub fn run_job(job_id: &str, trigger: Trigger, pull_request: Option<PullRequest>) -> i32 {
     let job = match jobs::find(job_id) {
         Ok(Some(job)) => job,
         Ok(None) => {
@@ -94,7 +96,7 @@ pub fn run_job(job_id: &str, trigger: Trigger) -> i32 {
             Some(job) => job,
             None => return 0,
         };
-        if let Some(code) = attempt(&job, trigger) {
+        if let Some(code) = attempt(&job, trigger, pull_request.as_ref()) {
             return code;
         }
         eprintln!("{job_id}: Claude Code's login expired; the run waits for a new one");
@@ -154,7 +156,10 @@ fn problems(unmet: &[ConditionStatus]) -> String {
 
 /// One recorded run, and its exit code. None when Claude Code turned it away for an expired login: the run is
 /// forgotten, and waits for a new login.
-fn attempt(job: &Job, trigger: Trigger) -> Option<i32> {
+fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> Option<i32> {
+    // The pull request goes after the job's prompt, and the record keeps the prompt the run got.
+    let prompt = pull_request.map_or_else(|| job.prompt.clone(), |pr| events::prompt(&job.prompt, pr));
+    let job = &Job { prompt, ..job.clone() };
     let job_id = job.id.as_str();
     let started = Utc::now();
     let mut rec = RunRecord {
@@ -177,6 +182,7 @@ fn attempt(job: &Job, trigger: Trigger) -> Option<i32> {
         interactive: job.interactive,
         tmux_session: None,
         actions: vec![],
+        pull_request: pull_request.cloned(),
     };
     if let Err(e) = runs::save(&rec) {
         eprintln!("cannot record the run: {e}");
@@ -223,7 +229,7 @@ fn attempt(job: &Job, trigger: Trigger) -> Option<i32> {
 }
 
 /// Starts `run <job>` in its own process, detached from the caller, with the environment launchd gives the job.
-pub fn spawn(job: &Job, trigger: Trigger) -> Result<(), String> {
+pub fn spawn(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot find the app's binary: {e}"))?;
     std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
     let log = std::fs::OpenOptions::new()
@@ -241,6 +247,12 @@ pub fn spawn(job: &Job, trigger: Trigger) -> Result<(), String> {
         Trigger::CatchUp => {
             cmd.args(["--trigger", "catch-up"]);
         }
+        Trigger::PullRequest => {
+            cmd.args(["--trigger", "pull-request"]);
+        }
+    }
+    if let Some(pr) = pull_request {
+        cmd.arg("--pull-request").arg(serde_json::to_string(pr).map_err(|e| e.to_string())?);
     }
     cmd.env_clear()
         .env("PATH", &job.path)
@@ -281,7 +293,7 @@ pub fn catch_up() -> i32 {
     let mut code = 0;
     for job in due {
         eprintln!("{}: catching up the run missed while the Mac was off", job.id);
-        if let Err(e) = spawn(job, Trigger::CatchUp) {
+        if let Err(e) = spawn(job, Trigger::CatchUp, None) {
             eprintln!("{}: {e}", job.id);
             code = 1;
         }

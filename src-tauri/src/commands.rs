@@ -2,6 +2,7 @@
 
 use crate::actions::{self, Action};
 use crate::conditions::{self, CommandCheck, CommandCondition, ConditionStatus, CLAUDE};
+use crate::events::{self, Repo, WatchStatus};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
@@ -32,6 +33,8 @@ pub struct JobView {
     pub waiting: Option<Waiting>,
     /// The conditions the job needs that are not met, from a check at most a few minutes old.
     pub unmet_conditions: Vec<ConditionStatus>,
+    /// How watching for its event goes, for a job an event starts.
+    pub watch: Option<WatchStatus>,
 }
 
 /// A command condition, with its last check.
@@ -71,12 +74,13 @@ fn exe() -> Reply<PathBuf> {
 
 fn view(job: Job) -> JobView {
     JobView {
-        label: launchd::label(&job.id),
-        loaded: launchd::is_loaded(&job.id),
+        label: launchd::label(launchd::agent_of(&job)),
+        loaded: launchd::is_loaded(launchd::agent_of(&job)),
         next_run: schedule::next_run(&job, Local::now()).map(|t| t.to_rfc3339_opts(SecondsFormat::Secs, false)),
         last_run: runs::list(&job.id, 1).into_iter().next(),
         waiting: runs::waiting(&job.id),
         unmet_conditions: conditions::unmet(&job, false),
+        watch: events::status(&job),
         job,
     }
 }
@@ -118,6 +122,9 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
     if !unknown.is_empty() {
         return Err(format!("No action called {}.", unknown.join(", ")).into());
     }
+    // Asks GitHub about the repositories it starts watching, so a typo shows here.
+    let previous = all.iter().find(|j| j.id == job.id).cloned();
+    let job = events::confirm(job, previous.as_ref())?;
     if job.interactive {
         // Here rather than at the first run, so a folder Claude Code cannot trust shows in the editor.
         trust::ensure(&job.cwd)?;
@@ -128,7 +135,8 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
         None => all.push(job.clone()),
     }
     jobs::save(&all)?;
-    launchd::apply_catch_up(&all, &exe()?)?;
+    events::watch(&job);
+    launchd::apply_shared(&all, &exe()?)?;
     Ok(view(job))
 }
 
@@ -142,7 +150,8 @@ pub fn delete_job(id: String) -> Reply<()> {
     launchd::remove(&id);
     let rest: Vec<Job> = all.into_iter().filter(|j| j.id != id).collect();
     jobs::save(&rest)?;
-    launchd::apply_catch_up(&rest, &exe()?)?;
+    events::forget(&id);
+    launchd::apply_shared(&rest, &exe()?)?;
     Ok(())
 }
 
@@ -155,7 +164,9 @@ pub fn set_enabled(id: String, enabled: bool) -> Reply<JobView> {
     let job = job.clone();
     launchd::apply(&job, &exe()?)?;
     jobs::save(&all)?;
-    launchd::apply_catch_up(&all, &exe()?)?;
+    // A job resumed watches from now: what was opened while it was paused does not start it.
+    events::watch(&job);
+    launchd::apply_shared(&all, &exe()?)?;
     Ok(view(job))
 }
 
@@ -171,7 +182,7 @@ pub fn run_now(id: String) -> Reply<()> {
             .to_string()
             .into());
     }
-    runner::spawn(&job, Trigger::Manual)?;
+    runner::spawn(&job, Trigger::Manual, None)?;
     Ok(())
 }
 
@@ -264,7 +275,7 @@ pub fn claude_status() -> Reply<ConditionStatus> {
 }
 
 /// The PATH a command condition is checked with outside a run: the jobs', which they normally share.
-fn check_path() -> Reply<String> {
+pub fn check_path() -> Reply<String> {
     Ok(claude_job()?.map(|job| job.path).unwrap_or_else(|| jobs::defaults().path))
 }
 
@@ -323,6 +334,13 @@ pub fn delete_condition(id: String) -> Reply<()> {
 pub fn check_condition(condition: CommandCondition) -> Reply<CommandCheck> {
     let saved = conditions::load_commands()?.contains(&condition);
     Ok(conditions::check_command(&condition, &check_path()?, saved).0)
+}
+
+/// The repositories a job can watch for pull requests: those the GitHub CLI's account can see, found with `path`,
+/// the job's PATH.
+#[tauri::command(async)]
+pub fn list_repos(path: String) -> Reply<Vec<Repo>> {
+    Ok(events::list_repos(&path)?)
 }
 
 /// What jobs can do when a run ends.
@@ -450,13 +468,18 @@ pub fn sync_launchd() {
     let current = exe.display().to_string();
     let Ok(all) = jobs::load() else { return };
     for job in all.iter().filter(|j| j.enabled) {
-        if launchd::program_of(&job.id).as_deref() != Some(current.as_str()) || !launchd::is_loaded(&job.id) {
+        let stale = match &job.event {
+            // Its own agent, left from when it had a schedule.
+            Some(_) => launchd::plist_path(&job.id).exists(),
+            None => launchd::program_of(&job.id).as_deref() != Some(current.as_str()) || !launchd::is_loaded(&job.id),
+        };
+        if stale {
             if let Err(e) = launchd::apply(job, &exe) {
                 eprintln!("could not update the schedule of {}: {e}", job.id);
             }
         }
     }
-    if let Err(e) = launchd::apply_catch_up(&all, &exe) {
-        eprintln!("could not update the login catch-up: {e}");
+    if let Err(e) = launchd::apply_shared(&all, &exe) {
+        eprintln!("could not update the login catch-up or the events check: {e}");
     }
 }

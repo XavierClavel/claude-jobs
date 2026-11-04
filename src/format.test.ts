@@ -4,11 +4,13 @@ import {
   day,
   duration,
   ordinal,
+  prRef,
   scheduleShort,
   scheduleText,
   slug,
   stopwatch,
   tally,
+  triggerShort,
   when,
 } from './format'
 
@@ -144,5 +146,46 @@ describe('tally', () => {
       '1 failed',
       '1 timed out',
     ])
+  })
+})
+
+describe('pull request jobs', () => {
+  const event = {
+    kind: 'pull_request_opened' as const,
+    repos: ['o/claude-jobs', 'o/api'],
+    mine: true,
+  }
+  const job = { hour: 9, minute: 0, weekdays: [], month_days: [], last_day_fallback: false, event }
+
+  it('say which pull requests start them', () => {
+    expect(scheduleText(job)).toBe('Each pull request you open in o/claude-jobs or o/api')
+    expect(scheduleText({ ...job, event: { ...event, mine: false, repos: ['o/a'] } })).toBe(
+      'Each pull request opened in o/a',
+    )
+    expect(scheduleShort(job)).toBe('Your PRs opened in claude-jobs, api')
+    const merged = { ...event, kind: 'pull_request_merged' as const, repos: ['o/a'] }
+    expect(scheduleText({ ...job, event: merged })).toBe('Each of your pull requests merged in o/a')
+    expect(scheduleText({ ...job, event: { ...merged, mine: false } })).toBe(
+      'Each pull request merged in o/a',
+    )
+    expect(scheduleShort({ ...job, event: { ...merged, mine: false } })).toBe('PRs merged in a')
+  })
+
+  it('name the pull request a run was for', () => {
+    const pr = {
+      repo: 'o/claude-jobs',
+      number: 21,
+      title: 't',
+      url: 'https://github.com/o/claude-jobs/pull/21',
+      author: 'me',
+      head: 'f',
+      base: 'main',
+      draft: false,
+      created_at: '2026-11-03T10:00:00Z',
+      merged_at: null,
+    }
+    expect(prRef(pr)).toBe('o/claude-jobs#21')
+    expect(triggerShort({ trigger: 'pull-request', pull_request: pr })).toBe('PR #21 claude-jobs')
+    expect(triggerShort({ trigger: 'catch-up', pull_request: null })).toBe('Catch-up')
   })
 })
