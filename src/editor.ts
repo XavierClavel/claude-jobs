@@ -1,3 +1,4 @@
+import type { ActionUse } from './domain/ActionUse'
 import type { Defaults } from './domain/Defaults'
 import type { EventKind } from './domain/EventKind'
 import type { Job } from './domain/Job'
@@ -37,10 +38,11 @@ export type Draft = {
   chrome: boolean
   // What the job needs on top of Claude Code signed in, which every job needs.
   conditions: string[]
-  // The ids of the actions it takes when a run ends.
-  onSuccess: string[]
-  onFailure: string[]
-  onComplete: string[]
+  // The actions Claude may send with during a run, and those taken when a run ends, each with who it sends to.
+  duringRun: ActionUse[]
+  onSuccess: ActionUse[]
+  onFailure: ActionUse[]
+  onComplete: ActionUse[]
 }
 
 export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
@@ -67,6 +69,7 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     interactive: job?.interactive ?? false,
     chrome: job?.chrome ?? false,
     conditions: job?.conditions ?? [],
+    duringRun: job?.during_run ?? [],
     onSuccess: job?.on_success ?? [],
     onFailure: job?.on_failure ?? [],
     onComplete: job?.on_complete ?? [],
@@ -117,6 +120,7 @@ export function toJob(draft: Draft): Job {
     interactive: draft.interactive,
     chrome: draft.chrome,
     conditions: draft.conditions,
+    during_run: draft.duringRun,
     on_success: draft.onSuccess,
     on_failure: draft.onFailure,
     on_complete: draft.onComplete,

@@ -1,16 +1,16 @@
 import { Fragment, useState } from 'react'
-import { destinationText, maskedUrl, OUTCOMES, usersOf } from '../actions'
+import { ACTION_LISTS, maskedUrl, recipientKind, usersOf } from '../actions'
 import { api, errorsOf } from '../api'
 import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
-import { ActionEditor, type Sent, SentResult, sendTest } from './ActionEditor'
+import { ActionEditor, type Sent, SentResult, sendTest, TestButton } from './ActionEditor'
 import { ActionIcon } from './ActionIcon'
 import { Icon } from './Icon'
 
 // Which action the form is open on: a new one, or one by its id.
 type Editing = { id: string | null } | null
 
-// What jobs can do when a run ends, and which jobs do it.
+// The Slack workflows jobs send with, who each sends to, and which jobs do.
 export function Actions({
   actions,
   jobs,
@@ -45,10 +45,6 @@ export function Actions({
       <header className="view-head">
         <div className="view-title">
           <h1>Actions</h1>
-          <span className="muted lead">
-            What a job does when a run ends. Each job picks its own in its editor: on success, on
-            failure, or both.
-          </span>
         </div>
         <div className="actions">
           <button
@@ -96,9 +92,6 @@ export function Actions({
           <button type="button" className="add-condition" onClick={() => setEditing({ id: null })}>
             <Icon name="plus" size={16} />
             Add an action
-            <span className="normal">
-              · a Slack workflow that messages a channel or a user when a run ends
-            </span>
           </button>
         )}
       </div>
@@ -120,14 +113,7 @@ function ActionCard({
   onDelete: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [testing, setTesting] = useState(false)
   const [sent, setSent] = useState<Sent | null>(null)
-
-  async function test() {
-    setTesting(true)
-    setSent(await sendTest(action))
-    setTesting(false)
-  }
 
   return (
     <section aria-label={action.name} className="cond">
@@ -139,14 +125,25 @@ function ActionCard({
             Slack workflow
           </span>
         </div>
-        <p className="cond-about">{destinationText(action)}</p>
         <dl className="kv">
           <dt>Webhook</dt>
           <dd className="mono">{maskedUrl(action.target.webhook_url)}</dd>
-          {OUTCOMES.map(([outcome, label]) => {
-            const users = usersOf(action.id, outcome, jobs)
+          <dt>Recipients</dt>
+          <dd className="tags">
+            {action.recipients.length === 0 ? (
+              <span className="muted">None</span>
+            ) : (
+              action.recipients.map((r) => (
+                <span key={r.id} className="tag" title={recipientKind(r)}>
+                  {r.name}
+                </span>
+              ))
+            )}
+          </dd>
+          {ACTION_LISTS.map(([list, label]) => {
+            const users = usersOf((u) => u.action === action.id, list, jobs)
             return (
-              <Fragment key={outcome}>
+              <Fragment key={list}>
                 <dt>{label}</dt>
                 <dd className="tags">
                   {users.length === 0 ? (
@@ -172,9 +169,10 @@ function ActionCard({
       <div className="cond-side">
         {sent && <SentResult sent={sent} />}
         <div className="actions cond-actions">
-          <button type="button" disabled={testing} onClick={test}>
-            {testing ? 'Sending…' : 'Send test'}
-          </button>
+          <TestButton
+            recipients={action.recipients}
+            onSend={async (to) => setSent(await sendTest(action, to))}
+          />
           <button type="button" onClick={onEdit}>
             Edit
           </button>

@@ -10,6 +10,14 @@ export type ActionResult = {
    */
   name: string
   /**
+   * Who it sent to; empty in a record from before recipients.
+   */
+  recipient: string
+  /**
+   * The recipient's name then.
+   */
+  recipient_name: string
+  /**
    * Why it did not work; none when it did.
    */
   error: string | null

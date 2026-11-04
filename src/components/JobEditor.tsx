@@ -25,8 +25,8 @@ import {
   toJob,
   withRepeat,
 } from '../editor'
-import { DAYS, MONTH_DAYS, scheduleText, slug } from '../format'
-import { AfterRunCard } from './AfterRunCard'
+import { DAYS, MONTH_DAYS, slug } from '../format'
+import { AfterRunCard, DuringRunCard } from './AfterRunCard'
 import { ConditionIcon } from './ConditionIcon'
 import { Icon } from './Icon'
 import { PromptField } from './PromptField'
@@ -56,6 +56,7 @@ export function JobEditor({
   defaults,
   checks,
   actions,
+  onActionSaved,
   onClose,
   onSaved,
   onDeleted,
@@ -63,8 +64,10 @@ export function JobEditor({
   job: JobView | null
   defaults: Defaults | null
   checks: Checks
-  // What a run can do when it ends.
+  // What a run can send with, during it or when it ends, each with who it can send to.
   actions: Action[]
+  // An action given a new recipient from the job's picker, saved.
+  onActionSaved: (saved: Action) => void
   onClose: () => void
   onSaved: (saved: JobView) => void
   onDeleted: () => void
@@ -159,20 +162,13 @@ export function JobEditor({
     set(key, days.includes(day) ? days.filter((d) => d !== day) : [...days, day])
   }
 
-  const schedule = draftErrors(draft)[0] ?? scheduleText(toJob(draft))
+  const scheduleError = draftErrors(draft)[0]
 
   return (
     <form className="view" onSubmit={save} aria-labelledby="editor-title">
       <header className="view-head bordered">
         <div className="view-title">
           <h1 id="editor-title">{job ? `Edit ${job.name}` : 'New job'}</h1>
-          <span className="muted">
-            {job
-              ? `${scheduleText(job)} · saving reloads its launchd agent`
-              : draft.starts === 'trigger'
-                ? 'Saving starts watching its repositories'
-                : 'Saving gives it a launchd agent, which starts it on its schedule'}
-          </span>
         </div>
         <div className="actions">
           <button type="button" onClick={onClose}>
@@ -222,9 +218,6 @@ export function JobEditor({
               </label>
             </div>
             <PromptField value={draft.prompt} skills={skills} onChange={(v) => set('prompt', v)} />
-            <p className="hint">
-              Type <span className="mono">/</span> to pick a skill the job's runs can see.
-            </p>
           </section>
 
           <fieldset className="card">
@@ -249,7 +242,6 @@ export function JobEditor({
                 repos={draft.repos}
                 path={draft.path.trim()}
                 mine={draft.mine}
-                summary={schedule}
                 onRepos={(v) => set('repos', v)}
                 onMine={(v) => set('mine', v)}
               />
@@ -309,38 +301,24 @@ export function JobEditor({
                     ))}
                   </fieldset>
                 )}
-                <p className="hint inline">
-                  <Icon name="clock" />
-                  <span>{schedule}</span>
-                </p>
+                {scheduleError && <p className="hint warn-text">{scheduleError}</p>}
                 {draft.repeat === 'monthly' && hasShortMonths(draft.monthDays) && (
-                  <>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={draft.lastDay}
-                        onChange={(e) => set('lastDay', e.target.checked)}
-                      />
-                      Run on the last day of shorter months
-                    </label>
-                    <p className="hint">
-                      {draft.lastDay
-                        ? 'A job on the 31st runs on 30 April, and on 28 February (29 in a leap year).'
-                        : 'Otherwise a month without one of these days skips it: a job on the 31st does not run in April.'}
-                    </p>
-                  </>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={draft.lastDay}
+                      onChange={(e) => set('lastDay', e.target.checked)}
+                    />
+                    Run on the last day of shorter months
+                  </label>
                 )}
-                <p className="hint">
-                  A missed time runs when the Mac wakes; a login catches up what was missed in the
-                  last day.
-                </p>
               </>
             )}
           </fieldset>
 
           <section className="card">
             <label className="field">
-              Allowed tools, one per line
+              Allowed tools
               <textarea
                 rows={3}
                 value={draft.tools}
@@ -358,6 +336,13 @@ export function JobEditor({
             onToggle={toggleCondition}
           />
 
+          <DuringRunCard
+            uses={draft.duringRun}
+            actions={actions}
+            onActionSaved={onActionSaved}
+            onChange={(uses) => set('duringRun', uses)}
+          />
+
           <AfterRunCard
             picked={{
               onSuccess: draft.onSuccess,
@@ -365,33 +350,26 @@ export function JobEditor({
               onComplete: draft.onComplete,
             }}
             actions={actions}
+            onActionSaved={onActionSaved}
             onChange={set}
           />
 
           <section className="card switches" aria-label="Run as">
             <div className="lbl">Run as</div>
-            <Switch label="Enabled" checked={draft.enabled} onChange={(on) => set('enabled', on)}>
-              Off = paused: stays in the list, never starts.
-            </Switch>
+            <Switch label="Enabled" checked={draft.enabled} onChange={(on) => set('enabled', on)} />
             <Switch
               label="Interactive session"
               checked={draft.interactive}
               onChange={(on) => set('interactive', on)}
-            >
-              A real Claude Code session in tmux instead of <span className="mono">claude -p</span>,
-              watchable live. Needed for tools a headless run does not get, such as the Artifact
-              tools. Saving tells Claude Code to trust the working folder, which cannot be your home
-              folder: a session lists every file in its folder, and macOS would then ask to let
-              Claude Jobs into Documents, Music and Pictures after every update.
-            </Switch>
+            />
             {draft.interactive && (
               <TmuxNotice status={tmux} installing={installing} onInstall={installTmux} />
             )}
-            <Switch label="Use Chrome" checked={draft.chrome} onChange={(on) => set('chrome', on)}>
-              Starts Claude with <span className="mono">--chrome</span> for the Claude in Chrome
-              tools. Claude does not open Chrome itself, so a prompt that may find it closed has to
-              open it. Allow the browser tools.
-            </Switch>
+            <Switch
+              label="Use Chrome"
+              checked={draft.chrome}
+              onChange={(on) => set('chrome', on)}
+            />
           </section>
 
           <section className="card">
@@ -414,7 +392,7 @@ export function JobEditor({
           <details className="advanced">
             <summary>
               <Icon name="chevron" size={12} />
-              Advanced · working folder, model, Claude binary, PATH
+              Advanced
             </summary>
             <div className="stack">
               <label className="field">
@@ -466,7 +444,6 @@ function PullRequestFields({
   repos,
   path,
   mine,
-  summary,
   onRepos,
   onMine,
 }: {
@@ -476,11 +453,9 @@ function PullRequestFields({
   // The job's PATH, where the GitHub CLI is found.
   path: string
   mine: boolean
-  summary: string
   onRepos: (repos: string[]) => void
   onMine: (mine: boolean) => void
 }) {
-  const verb = kind === 'pull_request_merged' ? 'merged' : 'opened'
   return (
     <>
       <div className="segmented wide" role="radiogroup" aria-label="Trigger">
@@ -501,16 +476,6 @@ function PullRequestFields({
         <input type="checkbox" checked={mine} onChange={(e) => onMine(e.target.checked)} />
         Only my pull requests
       </label>
-      <p className="hint inline">
-        <Icon name="clock" />
-        <span>{summary}</span>
-      </p>
-      <p className="hint">
-        Checked every minute with the GitHub CLI (<span className="mono">gh</span>), signed in as
-        you. Each pull request {verb} from now on starts one run, with its link, title and branches
-        after the prompt: a skill gets them as its arguments. One {verb} while the job runs starts
-        it once that run ends.
-      </p>
     </>
   )
 }
@@ -600,10 +565,6 @@ function ConditionsCard({
           </div>
         ))}
       </div>
-      <p className="hint">
-        A run waits until all of these are met, checking every 30 seconds. Make your own, from a
-        command, on the Conditions page.
-      </p>
       {open && (
         <div role="menu" aria-label="Conditions" className="picker">
           <div className="lbl picker-title">Conditions</div>

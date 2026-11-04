@@ -96,17 +96,7 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
             .collect();
     args.extend(env);
     args.extend([job.claude.clone(), "--settings".into(), settings.display().to_string()]);
-    args.extend(["--append-system-prompt".into(), crate::runner::STATUS_INSTRUCTION.into()]);
-    if !job.model.is_empty() {
-        args.extend(["--model".into(), job.model.clone()]);
-    }
-    if job.chrome {
-        args.push("--chrome".into());
-    }
-    if !job.allowed_tools.is_empty() {
-        args.push("--allowedTools".into());
-        args.extend(job.allowed_tools.iter().cloned());
-    }
+    args.extend(runner::session_args(job, &rec.id)?);
     args.extend(["--".into(), job.prompt.clone()]);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let started = tmux(&bin, &arg_refs).ok_or("cannot run tmux")?;

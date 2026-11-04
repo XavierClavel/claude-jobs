@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { actionName, OUTCOMES } from '../actions'
+import { ACTION_LISTS, describeUse } from '../actions'
 import { api } from '../api'
 import { type Checks, conditionState, fullName, required } from '../conditions'
 import type { Action } from '../domain/Action'
@@ -16,6 +16,7 @@ import {
   STATUS_LABEL,
   scheduleText,
   triggerShort,
+  triggerText,
   when,
 } from '../format'
 import { isRunning, unmetOf } from '../jobs'
@@ -24,6 +25,7 @@ import { Chip, runTone } from './Chip'
 import { ConditionIcon } from './ConditionIcon'
 import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
+import { PullRequestChip, RepoChip } from './RepoChip'
 
 const STARTED_BY: Record<Trigger, string> = {
   schedule: 'from the schedule',
@@ -118,11 +120,6 @@ export function JobDetail({
                 {last.pull_request ? `for ${prRef(last.pull_request)}` : STARTED_BY[last.trigger]} ·
                 times out at {timesOutAt(last.started_at, job)}
               </div>
-              {job.interactive && (
-                <div className="muted small-text">
-                  Interactive session in tmux · Watch opens it in Terminal.
-                </div>
-              )}
             </div>
             <div className="now-timer">
               <Elapsed since={last.started_at} />
@@ -137,22 +134,20 @@ export function JobDetail({
               </div>
               <div>
                 Waiting since {midSentence(when(waiting.since))}
-                {problems ? `: ${problems}` : ' for its conditions.'} It starts as soon as they are
-                met.
+                {problems ? `: ${problems}` : ''}
               </div>
             </div>
           </section>
         ) : (
           unmet.length > 0 && (
             <p className="note note-warn" role="status">
-              {problems} Its next run waits until then.
+              {problems}
             </p>
           )
         )}
         {job.enabled && job.watch?.problem && (
           <p className="note note-warn" role="status">
-            {job.watch.problem} Until then, no pull request starts it; those that come meanwhile
-            start it once the check works again.
+            {job.watch.problem}
           </p>
         )}
 
@@ -164,19 +159,39 @@ export function JobDetail({
           <section className="card" aria-label="Setup">
             <div className="lbl">Setup</div>
             <dl className="kv">
-              <dt>{job.event ? 'Starts' : 'Schedule'}</dt>
-              <dd>
-                {scheduleText(job)}
-                {job.enabled && job.next_run ? ` · next ${midSentence(when(job.next_run))}` : ''}
-                {job.enabled && job.event && watchText(job)}
-              </dd>
+              <dt>{job.event ? 'Trigger' : 'Schedule'}</dt>
+              {job.event ? (
+                <dd className="stack-6">
+                  <span className="inline wrap">
+                    {triggerText(job.event)} in
+                    {job.event.repos.map((repo) => (
+                      <RepoChip key={repo} repo={repo} />
+                    ))}
+                  </span>
+                  {job.enabled && <span className="muted">{watchText(job)}</span>}
+                </dd>
+              ) : (
+                <dd>{scheduleText(job)}</dd>
+              )}
+              {!job.event && (
+                <>
+                  <dt>Next run</dt>
+                  <dd>
+                    {!job.enabled ? (
+                      <span className="muted">None while paused</span>
+                    ) : job.next_run ? (
+                      when(job.next_run)
+                    ) : (
+                      <span className="muted">None</span>
+                    )}
+                  </dd>
+                </>
+              )}
               <dt>Timeout</dt>
               <dd>{job.timeout_minutes} minutes</dd>
               <dt>Allowed tools</dt>
-              <dd className="mono">
-                {job.allowed_tools.filter(Boolean).join(' · ') || (
-                  <span className="muted">None</span>
-                )}
+              <dd>
+                <AllowedTools tools={job.allowed_tools.filter(Boolean)} />
               </dd>
               <dt>Folder</dt>
               <dd className="mono">{job.cwd}</dd>
@@ -202,17 +217,17 @@ export function JobDetail({
                   )
                 })}
               </dd>
-              {OUTCOMES.map(([outcome, label]) => (
+              {ACTION_LISTS.map(([outcome, label]) => (
                 <Fragment key={outcome}>
                   <dt>{label}</dt>
                   <dd className="tags">
                     {job[outcome].length === 0 ? (
                       <span className="muted">Nothing</span>
                     ) : (
-                      job[outcome].map((id) => (
-                        <span key={id} className="tag with-icon">
-                          <PickedIcon id={id} actions={actions} />
-                          {actionName(id, actions)}
+                      job[outcome].map((used) => (
+                        <span key={`${used.action}/${used.recipient}`} className="tag with-icon">
+                          <PickedIcon id={used.action} actions={actions} />
+                          {describeUse(used, actions)}
                         </span>
                       ))
                     )}
@@ -245,14 +260,14 @@ export function JobDetail({
   )
 }
 
-// How watching for pull requests goes: " · checked 30 s ago · 2 wait for this run".
+// How watching for pull requests goes: "Checked 30 s ago · 2 wait for this run".
 function watchText(job: JobView): string {
   const watch = job.watch
-  if (!watch?.checked_at) return ' · first check within a minute'
+  if (!watch?.checked_at) return 'First check within 5 minutes'
   const pending = watch.pending
     ? ` · ${watch.pending} more ${watch.pending === 1 ? 'waits' : 'wait'} for the current run`
     : ''
-  return ` · checked ${ago(watch.checked_at)}${pending}`
+  return `Checked ${ago(watch.checked_at)}${pending}`
 }
 
 function timesOutAt(startedAt: string, job: JobView): string {
@@ -302,7 +317,13 @@ function RunsTable({ runs, onOpen }: { runs: RunRecord[]; onOpen: (run: RunRecor
             tabIndex={0}
           >
             <td>{when(r.started_at)}</td>
-            <td className="muted">{triggerShort(r)}</td>
+            <td className="muted">
+              {r.trigger === 'pull-request' && r.pull_request ? (
+                <PullRequestChip pr={r.pull_request} />
+              ) : (
+                triggerShort(r)
+              )}
+            </td>
             <td>
               <Chip tone={runTone(r.status)}>{STATUS_LABEL[r.status]}</Chip>
             </td>
@@ -315,6 +336,23 @@ function RunsTable({ runs, onOpen }: { runs: RunRecord[]; onOpen: (run: RunRecor
         ))}
       </tbody>
     </table>
+  )
+}
+
+// The tools a job's runs may use without asking, one per line, folded until asked for.
+function AllowedTools({ tools }: { tools: string[] }) {
+  if (tools.length === 0) return <span className="muted">None</span>
+  return (
+    <details className="allowed-tools">
+      <summary>
+        {tools.length} {tools.length === 1 ? 'tool' : 'tools'}
+      </summary>
+      <ul className="mono">
+        {tools.map((tool) => (
+          <li key={tool}>{tool}</li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

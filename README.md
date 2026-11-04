@@ -32,7 +32,7 @@ see, and whether only your pull requests start it. Saving asks GitHub about each
 way GitHub does.
 
 GitHub cannot reach the Mac, so while such a job is enabled a launchd agent (`com.claude-jobs.app.events`, calling
-`claude-jobs poll`) checks every minute with the GitHub CLI: `gh pr list` for each repository, signed in as you (run
+`claude-jobs poll`) checks every 5 minutes with the GitHub CLI: `gh pr list` for each repository, signed in as you (run
 `gh auth login` once; `brew install gh` if it is missing), with the job's PATH. Each pull request opened, or merged,
 since the job began watching starts one run, shown as **PR #21 repo** in the history. Its prompt is the job's,
 followed by the pull request:
@@ -84,31 +84,69 @@ for the window and `claude-jobs status`; a waiting run always checks again.
 
 A job can do something when a run ends: its **On success** actions when the run worked, its **On failure** actions when
 it failed or timed out, and its **On complete** actions either way (an interrupted run has no runner left to take
-them). An action in two of a job's lists is sent once per run. Actions are made once, on the **Actions**
-page (**Manage**, under the conditions), and each job picks its own in the editor, under **When it ends**.
+them). Actions are made once, on the **Actions** page (**Manage**, under the conditions), and each job picks its own in
+the editor, under **When it ends**.
 
-The one kind so far starts a Slack workflow, which sends the message to a user or a channel. In Workflow Builder
-(a paid Slack plan), start a workflow **From a webhook** with the variables its message uses, add the step **Send a
-message to a person** (or **to a channel**) to the `user` (or `channel`) variable with `text` as its message, publish
-it, and paste its web request URL in the action, with the user's or the channel's Slack ID: a user's is under **⋮ →
-Copy member ID** in their profile, a channel's at the bottom of its details. The editor lists the variables:
+Each action can have a list of recipients, and each time a job uses the action it can pick one of them from a menu, so
+the same workflow can message several people. Recipients are optional: with none picked, the message goes without a
+`user` or `channel` variable, to wherever the workflow was built to send, such as a channel set in its step. A recipient is a name and a Slack ID, listed in the action's editor, or added
+from the job's menu itself (**New recipient…**): a user's ID is under **⋮ → Copy member ID** in their profile, a
+channel's at the bottom of its details. The ID says which it is, `U…` for a user and `C…` for a channel. The same
+action can be in a list twice, to two recipients; the same action to the same recipient is sent once per run, even
+from two lists.
+
+The one kind of action so far starts a Slack workflow. In Workflow Builder (a paid Slack plan), start a workflow **From a
+webhook** with the variables its message uses, add the step **Send a message to a person** to the `user` variable (or
+**to a channel** to `channel`) with `text` as its message, publish it, and paste its web request URL in the action. A
+workflow sends to the kind of recipient its step names: one for people, another for channels. The editor lists the
+variables:
 
 | Key                 | Data type             | What it holds                                                                                         |
 | ------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `user` or `channel` | User ID or Channel ID | Who gets the message, the ID set in the action                                                        |
+| `user` or `channel` | User ID or Channel ID | Who gets the message: the action's recipient the job picked, by its kind; none without one            |
 | `text`              | Text                  | The whole message: the summary, then the result                                                       |
 | `summary`           | Text                  | How the run went, in a line: `✅ Photobook monitor finished · 2 min 3 s · $0.55`                      |
 | `result`            | Text                  | Claude's result, its Markdown written to read well in Slack and cut at 3,000 characters, or the error |
 | `job`               | Text                  | The job's name                                                                                        |
 | `status`            | Text                  | `OK`, `Failed` or `Timed out`                                                                         |
 
+A message Claude sends during a run (see below) fills them too: `summary` is 💬 and the line Claude gave as its
+`summary`, or the job's name (`💬 Photobook monitor`) without one, `result` the message, written the same way, and
+`status` `Running`. A workflow that posts `summary`, then `result` as a reply in its thread, gets a headline and the
+details under it.
+
 Every message sends all of them, since a workflow fails on a variable it declares and does not get; it uses those it
-declares. **Send test** starts the workflow with test values, before the action is saved too.
+declares, except the recipient's, which only goes with a recipient. **Send test to** starts the workflow with test
+values for the recipient picked beside it, one of the action's or none, before the action is saved too.
 
 The messages go out once the run is recorded as ended, each with 15 seconds to get an answer. What each action did is
 kept in the run's record, in `actions`, and shown in its history; a message that did not go out shows under **Needs
 attention**. Actions are kept in `actions.json`, which only you can read, since anyone with a webhook's URL can start
-the workflow. Deleting one takes it off the jobs that used it.
+the workflow, each with its `recipients`. Deleting an action, or taking a recipient off it, takes it off the jobs that
+used it.
+
+Before recipients, each action had one user or channel. Such an action still works: it becomes the action's one
+recipient, with the action's id and name, which the jobs that used the action send to.
+
+## Messages during a run
+
+A job can also let Claude send messages itself while it runs, with the same actions: pick them in the editor, under
+**During the run**, each with its recipient, and say in the prompt what to send to whom, such as "post the orders still
+stuck to Ops". Each run then starts Claude with the app's own MCP server (`claude-jobs mcp <job> <run>`, passed with
+`--mcp-config`), whose `send_message` tool sends Markdown, at most 3,000 characters, to one of those recipients (`to`,
+its id, or `<recipient>/<action>` for a recipient picked with several actions), with an optional one-line `summary`. The tool is allowed without
+asking (`mcp__claude-jobs__send_message`), headless or interactive: picking the actions is the permission. A job with
+nothing under **During the run** gets no server and no tool.
+
+For a use, **Anyone** opens the action to any user or channel: Claude gives the Slack ID itself, in the
+tool's `slack_id` (`<action>/anyone` in `to`; `"recipient": "*"` in `jobs.json`). Claude cannot guess IDs, so allow the
+job a tool that finds them, such as the Slack connector's user and channel search. A workflow sends either to users or
+to channels, so keep one action of each kind open: Slack refuses an ID of the other kind, and Claude gets the error.
+Anyone is for messages during the run only.
+
+What each message did is kept in the run's record, in `messages`, and shown in its history under **Messages Claude
+sent**; while the run goes on it is in `<run>.messages.jsonl`. A message Slack refused is not retried: Claude gets the
+error and decides what to do with it.
 
 ## Requirements
 
@@ -154,12 +192,12 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 
 - `jobs.json`: the jobs.
 - `conditions.json`: the last check of each condition (see Conditions).
-- `actions.json`: what jobs can do when a run ends, with their Slack workflows' webhooks (see Actions).
+- `actions.json`: what jobs can do when a run ends, with their Slack workflows' webhooks and recipients (see Actions).
 - `events.json`: for each job a pull request starts, when it began watching each repository, the pull requests it
   started for, and its last check (see Triggers).
 - `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id, what its
-  actions did), with `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside it. The last 100 runs are
-  kept.
+  actions did, the messages Claude sent), with `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside
+  it. The last 100 runs are kept.
 - `logs/<job>.launchd.log`: what the runner itself printed.
 - `workspace/`: the working folder of jobs that need no particular one, empty (see Interactive jobs).
 
@@ -181,13 +219,15 @@ Claude Jobs widget uses `status` and `watch`:
   `status` lists it. The fields are a job's in `jobs.json`. A new job needs `id`, `name` and `prompt`, and `hour` and
   `minute` unless a trigger starts it; the others get the editor's defaults, such as the working folder
   `~/.claude-jobs/workspace`. For an existing `id`, the fields given replace the job's and the others stay. A field it
-  does not know is refused, not dropped, and so is an id in `conditions`, `on_success`, `on_failure` or `on_complete`
-  that names nothing.
+  does not know is refused, not dropped, and so is an id in `conditions` that names nothing. `during_run`,
+  `on_success`, `on_failure` and `on_complete` list `{"action": …, "recipient": …}`: an action of `actions.json`,
+  and the id of one of its `recipients`, or none (`"recipient"` left out or empty).
 
   ```sh
   claude-jobs save <<'EOF'
   {"id": "weekly-report", "name": "Weekly report", "prompt": "/weekly-report", "hour": 8, "minute": 30,
-   "weekdays": [1], "allowed_tools": ["Read", "Skill"]}
+   "weekdays": [1], "allowed_tools": ["Read", "Skill"],
+   "on_failure": [{"action": "slack-message", "recipient": "ops"}]}
   EOF
   ```
 

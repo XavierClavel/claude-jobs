@@ -2,6 +2,7 @@
 import type { ActionResult } from './ActionResult'
 import type { PullRequest } from './PullRequest'
 import type { RunStatus } from './RunStatus'
+import type { SentMessage } from './SentMessage'
 import type { Trigger } from './Trigger'
 
 export type RunDetail = {
@@ -42,4 +43,8 @@ export type RunDetail = {
    * The pull request the run was started for, which its prompt ends with.
    */
   pull_request: PullRequest | null
+  /**
+   * The messages Claude sent while the run went on, with its `send_message` tool: see `mcp`.
+   */
+  messages: Array<SentMessage>
 }

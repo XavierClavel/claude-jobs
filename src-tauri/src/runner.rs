@@ -5,7 +5,7 @@ use crate::conditions::{self, ConditionStatus, CLAUDE_EXPIRED};
 use crate::events::{self, PullRequest};
 use crate::jobs::{self, Job};
 use crate::runs::{self, RunRecord, RunStatus, Trigger, Waiting};
-use crate::{paths, schedule};
+use crate::{mcp, paths, schedule};
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use std::fs::File;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -183,6 +183,7 @@ fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> O
         tmux_session: None,
         actions: vec![],
         pull_request: pull_request.cloned(),
+        messages: vec![],
     };
     if let Err(e) = runs::save(&rec) {
         eprintln!("cannot record the run: {e}");
@@ -190,6 +191,7 @@ fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> O
     }
 
     let outcome = if job.interactive { crate::interactive::execute(job, &mut rec) } else { execute(job, &mut rec) };
+    rec.messages = mcp::sent(job_id, &rec.id);
     let ended = Utc::now();
     rec.ended_at = Some(ended.to_rfc3339_opts(SecondsFormat::Secs, true));
     rec.duration_s = Some((ended - started).num_seconds().max(0) as u32);
@@ -323,16 +325,7 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     let out_path = dir.join(format!("{}.out", rec.id));
     let err_path = dir.join(format!("{}.err", rec.id));
     let mut cmd = Command::new(&job.claude);
-    cmd.args(["-p", &job.prompt, "--output-format", "json", "--append-system-prompt", STATUS_INSTRUCTION]);
-    if !job.model.is_empty() {
-        cmd.args(["--model", &job.model]);
-    }
-    if job.chrome {
-        cmd.arg("--chrome");
-    }
-    if !job.allowed_tools.is_empty() {
-        cmd.arg("--allowedTools").args(&job.allowed_tools);
-    }
+    cmd.args(["-p", &job.prompt, "--output-format", "json"]).args(session_args(job, &rec.id)?);
     cmd.current_dir(&job.cwd)
         .env_clear()
         .env("PATH", &job.path)
@@ -382,6 +375,29 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
         });
     }
     Ok(Outcome::Finished)
+}
+
+/// What every run passes Claude Code, headless or interactive: how to end its answer, its model, Chrome, the tools
+/// Claude Jobs gives it, and the tools it may use without asking.
+pub fn session_args(job: &Job, run_id: &str) -> Result<Vec<String>, String> {
+    let mut args = vec!["--append-system-prompt".to_string(), STATUS_INSTRUCTION.to_string()];
+    if !job.model.is_empty() {
+        args.extend(["--model".to_string(), job.model.clone()]);
+    }
+    if job.chrome {
+        args.push("--chrome".to_string());
+    }
+    let mut allowed = job.allowed_tools.clone();
+    if !job.during_run.is_empty() {
+        args.extend(["--mcp-config".to_string(), mcp::config(&job.id, run_id)?]);
+        // The job picked what Claude may send with: that is the permission, and nobody is there to give another.
+        allowed.push(mcp::SEND_MESSAGE_TOOL.to_string());
+    }
+    if !allowed.is_empty() {
+        args.push("--allowedTools".to_string());
+        args.extend(allowed);
+    }
+    Ok(args)
 }
 
 /// Whether `claude -p` was refused for its login: the API said 401, or Claude Code asked for /login.
@@ -484,6 +500,24 @@ mod tests {
         assert!(!login_refused(
             &serde_json::json!({"is_error": true, "api_error_status": 529, "result": "Overloaded"})
         ));
+    }
+
+    #[test]
+    fn a_job_that_lets_claude_send_messages_gets_the_tool_and_its_permission() {
+        let mut job: Job = serde_json::from_value(serde_json::json!({
+            "id": "j", "name": "J", "prompt": "/j", "hour": 9, "minute": 0, "allowed_tools": ["Read"]
+        }))
+        .expect("parses");
+        let args = session_args(&job, "20261103T080000Z").expect("args");
+        assert!(!args.iter().any(|a| a == "--mcp-config"), "{args:?}");
+        assert_eq!(args[args.len() - 2..], ["--allowedTools", "Read"]);
+
+        job.during_run = vec![crate::actions::ActionUse { action: "slack".into(), recipient: "me".into() }];
+        let args = session_args(&job, "20261103T080000Z").expect("args");
+        let at = args.iter().position(|a| a == "--mcp-config").expect("an MCP config");
+        let config: serde_json::Value = serde_json::from_str(&args[at + 1]).expect("json");
+        assert_eq!(config["mcpServers"][mcp::SERVER]["args"], serde_json::json!(["mcp", "j", "20261103T080000Z"]));
+        assert_eq!(args[args.len() - 3..], ["--allowedTools", "Read", mcp::SEND_MESSAGE_TOOL]);
     }
 
     #[test]

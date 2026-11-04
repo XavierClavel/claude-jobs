@@ -87,6 +87,7 @@ mod tests {
             interactive: false,
             chrome: false,
             conditions: vec![],
+            during_run: vec![],
             on_success: vec![],
             on_failure: vec![],
             on_complete: vec![],

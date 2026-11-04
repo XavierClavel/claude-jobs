@@ -1,6 +1,6 @@
 //! What the window can ask for. Every write goes through one lock, so two saves cannot interleave.
 
-use crate::actions::{self, Action};
+use crate::actions::{self, Action, ActionUse, Recipient};
 use crate::conditions::{self, CommandCheck, CommandCondition, ConditionStatus, CLAUDE};
 use crate::events::{self, Repo, WatchStatus};
 use crate::gcloud::{self, GcloudStatus};
@@ -110,17 +110,14 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
     if !unknown.is_empty() {
         return Err(format!("No condition called {}.", unknown.join(", ")).into());
     }
-    let defined = actions::load()?;
-    let unknown: Vec<&str> = job
-        .on_success
-        .iter()
-        .chain(&job.on_failure)
-        .chain(&job.on_complete)
-        .map(String::as_str)
-        .filter(|a| !actions::is_known(a, &defined))
-        .collect();
+    let uses = job.during_run.iter().chain(&job.on_success).chain(&job.on_failure).chain(&job.on_complete);
+    let mut unknown = actions::unknown_in(uses, &actions::load()?);
+    // Once a run has ended, no Claude is left to name who to send to.
+    if job.on_success.iter().chain(&job.on_failure).chain(&job.on_complete).any(|u| u.recipient == actions::ANYONE) {
+        unknown.push("Anyone, whose Slack ID Claude gives, is only for messages during the run.".to_string());
+    }
     if !unknown.is_empty() {
-        return Err(format!("No action called {}.", unknown.join(", ")).into());
+        return Err(unknown.join(" ").into());
     }
     // Asks GitHub about the repositories it starts watching, so a typo shows here.
     let previous = all.iter().find(|j| j.id == job.id).cloned();
@@ -343,7 +340,13 @@ pub fn list_repos(path: String) -> Reply<Vec<Repo>> {
     Ok(events::list_repos(&path)?)
 }
 
-/// What jobs can do when a run ends.
+/// Opens a repository a job watches on GitHub, or the pull request `number` that started a run.
+#[tauri::command(async)]
+pub fn open_on_github(repo: String, number: Option<u32>) -> Reply<()> {
+    Ok(events::open_on_github(&repo, number)?)
+}
+
+/// What jobs can do when a run ends, or while it goes on.
 #[tauri::command(async)]
 pub fn list_actions() -> Reply<Vec<Action>> {
     Ok(actions::load()?)
@@ -354,6 +357,14 @@ pub fn save_action(action: Action, editing: Option<String>) -> Reply<Action> {
     let _guard = lock();
     let mut all = actions::load()?;
     let action = actions::validate(action, &all, editing.as_deref())?;
+    // The jobs that sent to a recipient taken off the action send to it no more.
+    if let Some(before) = all.iter().find(|a| a.id == action.id) {
+        let gone: Vec<&str> =
+            before.recipients.iter().filter(|r| action.recipient(&r.id).is_none()).map(|r| r.id.as_str()).collect();
+        if !gone.is_empty() {
+            drop_uses(|u| u.action == action.id && gone.contains(&u.recipient.as_str()))?;
+        }
+    }
     match all.iter_mut().find(|a| a.id == action.id) {
         Some(existing) => *existing = action.clone(),
         None => all.push(action.clone()),
@@ -362,7 +373,24 @@ pub fn save_action(action: Action, editing: Option<String>) -> Reply<Action> {
     Ok(action)
 }
 
-/// Deletes an action, and takes it off the jobs that used it.
+/// Takes off every job the uses `drop` picks, and saves the jobs if that changed one.
+fn drop_uses(drop: impl Fn(&ActionUse) -> bool) -> Result<(), String> {
+    let mut jobs = jobs::load()?;
+    let mut changed = false;
+    for job in &mut jobs {
+        for uses in [&mut job.during_run, &mut job.on_success, &mut job.on_failure, &mut job.on_complete] {
+            let before = uses.len();
+            uses.retain(|u| !drop(u));
+            changed |= uses.len() != before;
+        }
+    }
+    if changed {
+        jobs::save(&jobs)?;
+    }
+    Ok(())
+}
+
+/// Deletes an action, and takes it off the jobs that used it, during their runs or when they end.
 #[tauri::command(async)]
 pub fn delete_action(id: String) -> Reply<()> {
     let _guard = lock();
@@ -370,25 +398,24 @@ pub fn delete_action(id: String) -> Reply<()> {
     if !all.iter().any(|a| a.id == id) {
         return Err(format!("No action called {id}.").into());
     }
-    let mut jobs = jobs::load()?;
-    if jobs.iter().any(|j| j.on_success.contains(&id) || j.on_failure.contains(&id) || j.on_complete.contains(&id)) {
-        for job in &mut jobs {
-            job.on_success.retain(|a| *a != id);
-            job.on_failure.retain(|a| *a != id);
-            job.on_complete.retain(|a| *a != id);
-        }
-        jobs::save(&jobs)?;
-    }
+    drop_uses(|u| u.action == id)?;
     actions::save(&all.into_iter().filter(|a| a.id != id).collect::<Vec<_>>())?;
     Ok(())
 }
 
-/// Sends a test message with an action, saved or not, once its fields are valid.
+/// Sends a test message with an action, saved or not, once its fields are valid: to a recipient, which need not be
+/// one of its own yet, or to none.
 #[tauri::command(async)]
-pub fn test_action(action: Action) -> Reply<()> {
-    // Checked as a new action, so a test works before it is saved and while it is edited.
-    let action = actions::validate(Action { id: "test".into(), ..action }, &[], None)?;
-    Ok(actions::test(&action)?)
+pub fn test_action(action: Action, recipient: Option<Recipient>) -> Reply<()> {
+    // Checked as new, so a test works before it is saved and while it is edited.
+    let action = actions::validate(Action { id: "test".into(), recipients: vec![], ..action }, &[], None)?;
+    if let Some(recipient) = &recipient {
+        let errors = actions::check_recipient(recipient);
+        if !errors.is_empty() {
+            return Err(format!("{}: {}", recipient.name, errors.join(" ")).into());
+        }
+    }
+    Ok(actions::test(&action, recipient.as_ref())?)
 }
 
 /// Opens Terminal on `claude auth login`, with the environment the runs get, so the login is the one they use.

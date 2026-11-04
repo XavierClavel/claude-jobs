@@ -2,6 +2,7 @@
 
 use crate::actions::ActionResult;
 use crate::events::PullRequest;
+use crate::mcp::SentMessage;
 use crate::{jobs, paths};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -10,8 +11,9 @@ use ts_rs::TS;
 
 pub const KEEP_RUNS: usize = 100;
 const DETAIL_TAIL: usize = 200_000;
-/// The files of a run beside `<run>.json`; `done` and `failed` are what the Stop hooks of an interactive run write.
-const RUN_FILES: [&str; 6] = ["json", "out", "err", "done", "failed", "settings.json"];
+/// The files of a run beside `<run>.json`; `done` and `failed` are what the Stop hooks of an interactive run write,
+/// `messages.jsonl` what Claude sent during it.
+const RUN_FILES: [&str; 7] = ["json", "out", "err", "done", "failed", "settings.json", "messages.jsonl"];
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -79,6 +81,9 @@ pub struct RunRecord {
     /// The pull request the run was started for, which its prompt ends with.
     #[serde(default)]
     pub pull_request: Option<PullRequest>,
+    /// The messages Claude sent while the run went on, with its `send_message` tool: see `mcp`.
+    #[serde(default)]
+    pub messages: Vec<SentMessage>,
 }
 
 /// A run waiting for its job's conditions, kept in `runs/<job>/waiting.json` while its runner is alive. It is not in
@@ -104,6 +109,11 @@ pub struct RunDetail {
 
 pub fn dir(job_id: &str) -> PathBuf {
     paths::runs_dir().join(job_id)
+}
+
+/// What a run's `send_message` sent, one JSON line each, kept there until the run ends and goes into its record.
+pub fn messages_file(job_id: &str, run_id: &str) -> PathBuf {
+    dir(job_id).join(format!("{run_id}.messages.jsonl"))
 }
 
 pub fn valid_run_id(id: &str) -> bool {

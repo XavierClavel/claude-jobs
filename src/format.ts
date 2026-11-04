@@ -71,21 +71,20 @@ export function clock(hour: number, minute: number): string {
   return `${pad(hour)}:${pad(minute)}`
 }
 
+// Which pull requests start a job, without where: "Each pull request you open".
+export function triggerText(event: NonNullable<Job['event']>): string {
+  const merged = event.kind === 'pull_request_merged'
+  if (!event.mine) return `Each pull request ${merged ? 'merged' : 'opened'}`
+  return merged ? 'Each of your pull requests merged' : 'Each pull request you open'
+}
+
 // What starts a job: its schedule, or its event.
 export function scheduleText(
   job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days' | 'last_day_fallback'> & {
     event?: Job['event']
   },
 ): string {
-  if (job.event) {
-    const merged = job.event.kind === 'pull_request_merged'
-    const which = job.event.mine
-      ? merged
-        ? 'Each of your pull requests merged'
-        : 'Each pull request you open'
-      : `Each pull request ${merged ? 'merged' : 'opened'}`
-    return `${which} in ${orList(job.event.repos)}`
-  }
+  if (job.event) return `${triggerText(job.event)} in ${orList(job.event.repos)}`
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) {
     const shorter = job.last_day_fallback ? ', or the last day of shorter months' : ''
@@ -95,14 +94,13 @@ export function scheduleText(
   return `${job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')} at ${time}`
 }
 
-// The schedule in a few words, for the list of jobs: "Daily 06:00", "Weekly Mon 09:00" for one day a week,
+// The schedule in a few words, for the list of jobs: "Daily 06:00", "On PR opened" for a trigger, "Weekly Mon 09:00" for one day a week,
 // "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00".
 export function scheduleShort(
   job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'> & { event?: Job['event'] },
 ): string {
   if (job.event) {
-    const verb = job.event.kind === 'pull_request_merged' ? 'merged' : 'opened'
-    return `${job.event.mine ? 'Your PRs' : 'PRs'} ${verb} in ${job.event.repos.map(repoName).join(', ')}`
+    return job.event.kind === 'pull_request_merged' ? 'On PR merged' : 'On PR opened'
   }
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) return `Monthly ${job.month_days.map(ordinal).join(', ')} ${time}`

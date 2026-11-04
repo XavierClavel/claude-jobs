@@ -1827,6 +1827,52 @@ button.pick:hover:not(:disabled),
   font-weight: 700;
 }
 
+/* Who a job's action sends to, and who a test goes to. */
+select.recipient-select {
+  width: auto;
+  max-width: 50%;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+
+.new-recipient {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 0 26px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+}
+
+.new-recipient .actions {
+  justify-content: flex-end;
+}
+
+.test-to {
+  gap: 6px;
+}
+
+.test-to select.recipient-select {
+  max-width: 160px;
+  height: 32px;
+}
+
+.recipients {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.recipient-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 64px auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .workflow-setup {
   display: flex;
   flex-direction: column;
@@ -1928,4 +1974,39 @@ button.pick:hover:not(:disabled),
   font-size: 11px;
   font-weight: 800;
   color: var(--muted);
+}
+
+.repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 3px;
+  border-radius: 999px;
+  background: var(--chip);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.repo-chip .owner-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+}
+
+.allowed-tools summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.allowed-tools ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }

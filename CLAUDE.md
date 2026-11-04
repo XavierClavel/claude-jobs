@@ -5,7 +5,10 @@ macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with lau
 - Rust in `src-tauri/src`: `jobs` (jobs.json, validation), `launchd` (agent files, launchctl), `runner` (one run,
   `claude-jobs run <job>`, which first waits for the job's conditions), `conditions` (Claude Code and Google Cloud
   signed in, and the command conditions of `command_conditions.json`; checked and kept in `conditions.json`), `actions`
-  (what a job does when a run ends, on success, on failure or on complete: Slack workflows, kept in `actions.json`),
+  (what a job does when a run ends, on success, on failure or on complete: Slack workflows, kept in `actions.json`, each
+  with its recipients, one of which a job picks),
+  `mcp` (`claude-jobs mcp <job> <run>`, the MCP server a run's Claude gets with `--mcp-config`: its `send_message`
+  tool sends to the job's `during_run` recipients),
   `events` (jobs a trigger, a pull request opened or merged, starts instead of a schedule: `claude-jobs poll`, every
   minute from launchd, with the GitHub CLI; kept in `events.json`), `runs` (history, and the run waiting to start),
   `schedule` (next run), `update` (new versions from the GitHub releases), `commands` (what the window calls), `cli`

@@ -1,7 +1,7 @@
 //! Jobs a trigger starts instead of a schedule: a pull request opened, or merged, in a GitHub repository.
 //!
 //! GitHub cannot reach the Mac, so while such a job is enabled a launchd agent, `com.claude-jobs.app.events`, calls
-//! `claude-jobs poll` every minute: it lists the latest pull requests of each job's repositories with the GitHub CLI,
+//! `claude-jobs poll` every 5 minutes: it lists the latest pull requests of each job's repositories with the GitHub CLI,
 //! and starts the job for one opened, or merged, since the job began watching, with the pull request after its prompt.
 //! A job runs once at a time, so one that comes while it runs, or waits for its conditions, starts at the first check
 //! after that.
@@ -215,6 +215,19 @@ fn repo_name(given: &str) -> String {
 }
 
 /// GitHub's rules: an owner is letters, digits and dashes; a repository's name may also have dots and underscores.
+/// Opens a repository's page on GitHub in the default browser, or one of its pull requests' with `number`.
+pub fn open_on_github(repo: &str, number: Option<u32>) -> Result<(), String> {
+    if !valid_repo(repo) {
+        return Err(format!("{repo} is not a GitHub repository, owner/name."));
+    }
+    let url = match number {
+        Some(n) => format!("https://github.com/{repo}/pull/{n}"),
+        None => format!("https://github.com/{repo}"),
+    };
+    let status = Command::new("open").arg(&url).status().map_err(|e| e.to_string())?;
+    if status.success() { Ok(()) } else { Err(format!("Cannot open {url}.")) }
+}
+
 fn valid_repo(repo: &str) -> bool {
     let Some((owner, name)) = repo.split_once('/') else { return false };
     (1..=39).contains(&owner.len())
@@ -226,7 +239,7 @@ fn valid_repo(repo: &str) -> bool {
 }
 
 /// Asks GitHub about each repository `job` watches that `previous`, the job as it was saved, did not, and names them
-/// as GitHub does. A typo or a repository the account cannot see shows when the job is saved, not a minute later.
+/// as GitHub does. A typo or a repository the account cannot see shows when the job is saved, not at the next check.
 pub fn confirm(mut job: Job, previous: Option<&Job>) -> Result<Job, Vec<String>> {
     let watched: Vec<String> = previous.and_then(|p| p.event.as_ref()).map(|e| e.repos.clone()).unwrap_or_default();
     let path = job.path.clone();
@@ -558,7 +571,7 @@ struct Check {
     pending: u32,
 }
 
-/// What the agent calls every minute: starts each enabled job an event starts for the oldest pull request opened since
+/// What the agent calls every 5 minutes: starts each enabled job an event starts for the oldest pull request opened since
 /// it last did. Exit code 1 when a job could not be checked.
 pub fn poll() -> i32 {
     let all = match jobs::load() {

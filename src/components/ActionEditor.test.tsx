@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
-import { action } from '../test/fixtures'
+import { action, recipient } from '../test/fixtures'
 import { ActionEditor } from './ActionEditor'
 
 vi.mock('../api', () => ({
@@ -10,6 +10,7 @@ vi.mock('../api', () => ({
 }))
 
 const HOOK = 'https://hooks.slack.com/triggers/T0123/456/s3cr3t'
+const me = recipient({ id: 'me', name: 'Xavier', slack_id: 'U0123ABCD' })
 
 describe('ActionEditor', () => {
   beforeEach(() => {
@@ -17,68 +18,110 @@ describe('ActionEditor', () => {
     vi.mocked(api.testAction).mockReset()
   })
 
-  it('saves a new Slack action to a user, with an id from its name', async () => {
+  it('saves a new Slack action with its recipients, ids from their names', async () => {
     const onSaved = vi.fn()
     vi.mocked(api.saveAction).mockImplementation((a) => Promise.resolve(a))
     render(<ActionEditor action={null} onCancel={() => {}} onSaved={onSaved} />)
-    await userEvent.type(screen.getByLabelText('Name'), 'Me on Slack')
+    await userEvent.type(screen.getByLabelText('Name'), 'Private message')
     await userEvent.type(screen.getByLabelText('Webhook URL'), HOOK)
-    expect(screen.getByRole('radio', { name: 'Channel' })).toBeChecked()
-    await userEvent.click(screen.getByRole('radio', { name: 'User' }))
-    await userEvent.type(screen.getByLabelText('User ID'), 'U0123ABCD')
+    const recipients = within(screen.getByRole('group', { name: 'Recipients' }))
+    for (const [name, id] of [
+      ['Xavier', 'U0123ABCD'],
+      ['Ops', 'C0123ABCD'],
+      ['Ops', 'C0999ZZZZ'],
+    ] as const) {
+      await userEvent.click(recipients.getByRole('button', { name: 'Add recipient' }))
+      const at = recipients.getAllByLabelText(/^Name of recipient/).length
+      await userEvent.type(recipients.getByLabelText(`Name of recipient ${at}`), name)
+      await userEvent.type(recipients.getByLabelText(`Slack ID of recipient ${at}`), id)
+    }
+    expect(recipients.getByText('User')).toBeInTheDocument()
+    expect(recipients.getAllByText('Channel')).toHaveLength(2)
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.saveAction).toHaveBeenCalledWith(
       {
-        id: 'me-on-slack',
-        name: 'Me on Slack',
-        target: { kind: 'slack', webhook_url: HOOK, to: 'user', recipient: 'U0123ABCD' },
+        id: 'private-message',
+        name: 'Private message',
+        target: { kind: 'slack', webhook_url: HOOK },
+        recipients: [
+          { id: 'xavier', name: 'Xavier', slack_id: 'U0123ABCD' },
+          { id: 'ops', name: 'Ops', slack_id: 'C0123ABCD' },
+          { id: 'ops-2', name: 'Ops', slack_id: 'C0999ZZZZ' },
+        ],
       },
       null,
     )
     expect(onSaved).toHaveBeenCalledOnce()
   })
 
-  it('edits an action without changing its id', async () => {
+  it('edits an action, keeping its id and its recipients ids when they are renamed', async () => {
     vi.mocked(api.saveAction).mockImplementation((a) => Promise.resolve(a))
-    render(<ActionEditor action={action()} onCancel={() => {}} onSaved={() => {}} />)
+    render(
+      <ActionEditor
+        action={action({ recipients: [recipient(), me] })}
+        onCancel={() => {}}
+        onSaved={() => {}}
+      />,
+    )
     expect(screen.getByLabelText('Id')).toBeDisabled()
-    expect(screen.getByLabelText('Channel ID')).toHaveValue('C0123ABCD')
-    await userEvent.clear(screen.getByLabelText('Channel ID'))
-    await userEvent.type(screen.getByLabelText('Channel ID'), 'C0999ZZZZ')
+    await userEvent.clear(screen.getByLabelText('Name of recipient 1'))
+    await userEvent.type(screen.getByLabelText('Name of recipient 1'), 'Ops alerts')
+    await userEvent.click(screen.getByRole('button', { name: 'Remove recipient 2' }))
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.saveAction).toHaveBeenCalledWith(
-      expect.objectContaining({ target: expect.objectContaining({ recipient: 'C0999ZZZZ' }) }),
-      'ops',
+      expect.objectContaining({
+        id: 'alert',
+        recipients: [{ id: 'ops', name: 'Ops alerts', slack_id: 'C0123ABCD' }],
+      }),
+      'alert',
     )
   })
 
-  it('sends a test message before it is saved, and says how it went', async () => {
+  it('sends a test to the recipient picked, before it is saved, and says how it went', async () => {
     vi.mocked(api.testAction).mockResolvedValueOnce()
-    render(<ActionEditor action={action()} onCancel={() => {}} onSaved={() => {}} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Send test' }))
-    expect(api.testAction).toHaveBeenCalledWith(action())
-    expect(screen.getByRole('status')).toHaveTextContent('Sent to channel C0123ABCD')
+    const action2 = action({ recipients: [recipient(), me] })
+    render(<ActionEditor action={action2} onCancel={() => {}} onSaved={() => {}} />)
+    await userEvent.selectOptions(screen.getByLabelText('Send the test to'), 'me')
+    await userEvent.click(screen.getByRole('button', { name: 'Send test to' }))
+    expect(api.testAction).toHaveBeenCalledWith(action2, me)
+    expect(screen.getByRole('status')).toHaveTextContent('Sent to Xavier')
     // The result was for the webhook as it was.
-    await userEvent.type(screen.getByLabelText('Channel ID'), '1')
+    await userEvent.type(screen.getByLabelText('Webhook URL'), '1')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     vi.mocked(api.testAction).mockRejectedValueOnce('Slack refused the message (404 no_service).')
-    await userEvent.click(screen.getByRole('button', { name: 'Send test' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Send test to' }))
     expect(screen.getByRole('status')).toHaveTextContent('Not sent')
     expect(screen.getByRole('status')).toHaveTextContent('404 no_service')
     expect(api.saveAction).not.toHaveBeenCalled()
   })
 
-  it('says how to make the workflow, for a channel or a user', async () => {
+  it('saves and tests an action with no recipient, and offers only complete ones to test', async () => {
+    vi.mocked(api.testAction).mockResolvedValueOnce()
+    vi.mocked(api.saveAction).mockImplementation((a) => Promise.resolve(a))
+    const bare = action({ recipients: [] })
+    render(<ActionEditor action={bare} onCancel={() => {}} onSaved={() => {}} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Send test to' }))
+    expect(api.testAction).toHaveBeenCalledWith(bare, null)
+    expect(screen.getByRole('status')).toHaveTextContent(/^Sent$/)
+    await userEvent.click(screen.getByRole('button', { name: 'Add recipient' }))
+    await userEvent.type(screen.getByLabelText('Name of recipient 1'), 'Xavier')
+    await userEvent.type(screen.getByLabelText('Slack ID of recipient 1'), '@xavier')
+    const options = screen.getByLabelText('Send the test to').querySelectorAll('option')
+    expect([...options].map((o) => o.textContent)).toEqual(['No recipient'])
+    await userEvent.click(screen.getByRole('button', { name: 'Remove recipient 1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveAction).toHaveBeenCalledWith(bare, 'alert')
+  })
+
+  it('says how to make the workflow, for users and for channels', () => {
     render(<ActionEditor action={null} onCancel={() => {}} onSaved={() => {}} />)
     const setup = within(screen.getByRole('region', { name: 'Workflow setup' }))
     expect(setup.getByText('Send a message to a channel')).toBeInTheDocument()
+    expect(setup.getByText('Send a message to a person')).toBeInTheDocument()
     expect(setup.getByRole('row', { name: /^channel Channel ID/ })).toBeInTheDocument()
+    expect(setup.getByRole('row', { name: /^user User ID/ })).toBeInTheDocument()
     for (const key of ['text', 'summary', 'result', 'job', 'status'])
       expect(setup.getByRole('row', { name: new RegExp(`^${key} Text`) })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('radio', { name: 'User' }))
-    expect(setup.getByText('Send a message to a person')).toBeInTheDocument()
-    expect(setup.getByRole('row', { name: /^user User ID/ })).toBeInTheDocument()
-    expect(screen.getByLabelText('User ID')).toHaveAttribute('placeholder', 'U012AB3CD')
   })
 
   it('shows what the Rust side refuses', async () => {

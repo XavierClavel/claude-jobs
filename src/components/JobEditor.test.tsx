@@ -1,12 +1,13 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
-import { action, command, gcloudOut, signedIn } from '../test/fixtures'
+import { action, command, gcloudOut, recipient, signedIn, use } from '../test/fixtures'
 import { JobEditor } from './JobEditor'
 
 vi.mock('../api', () => ({
   api: {
     saveJob: vi.fn(),
+    saveAction: vi.fn(),
     listSkills: vi.fn(() => Promise.resolve([])),
     listRepos: vi.fn(() =>
       Promise.resolve([
@@ -44,6 +45,7 @@ async function newJob() {
       defaults={defaults}
       checks={signedIn}
       actions={[]}
+      onActionSaved={() => {}}
       onClose={() => {}}
       onSaved={onSaved}
       onDeleted={() => {}}
@@ -61,7 +63,6 @@ describe('JobEditor', () => {
     await newJob()
     expect(screen.getByRole('radio', { name: 'Daily' })).toBeChecked()
     expect(screen.queryByRole('group', { name: 'Days of the week' })).not.toBeInTheDocument()
-    expect(screen.getByText('Every day at 09:00')).toBeInTheDocument()
   })
 
   it('saves a job a merged pull request starts, its repositories picked from a search', async () => {
@@ -89,11 +90,6 @@ describe('JobEditor', () => {
     expect(screen.getAllByRole('option')).toHaveLength(2)
     await userEvent.click(screen.getByRole('option', { name: /claude-jobs/ }))
     expect(screen.getByLabelText('Only my pull requests')).toBeChecked()
-    expect(
-      screen.getByText(
-        'Each of your pull requests merged in Pictarine/backend-picta-api or XavierClavel/claude-jobs',
-      ),
-    ).toBeInTheDocument()
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove Pictarine/backend-picta-api' }),
     )
@@ -111,7 +107,7 @@ describe('JobEditor', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Weekly' }))
     expect(screen.getByLabelText('Mon')).toBeChecked()
     await userEvent.click(screen.getByLabelText('Fri'))
-    expect(screen.getByText('Mon, Fri at 09:00')).toBeInTheDocument()
+    expect(screen.getByLabelText('Fri')).toBeChecked()
   })
 
   it('saves a job that runs on days of the month', async () => {
@@ -119,7 +115,6 @@ describe('JobEditor', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Monthly' }))
     expect(screen.queryByRole('group', { name: 'Days of the week' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByLabelText('15'))
-    expect(screen.getByText('Monthly on the 1st, 15th at 09:00')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.saveJob).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'monthly-report', weekdays: [], month_days: [1, 15] }),
@@ -128,21 +123,12 @@ describe('JobEditor', () => {
     expect(onSaved).toHaveBeenCalledOnce()
   })
 
-  it('warns that a month without the day skips it', async () => {
-    await newJob()
-    await userEvent.click(screen.getByRole('radio', { name: 'Monthly' }))
-    expect(screen.queryByText(/does not run in April/)).not.toBeInTheDocument()
-    await userEvent.click(screen.getByLabelText('31'))
-    expect(screen.getByText(/does not run in April/)).toBeInTheDocument()
-  })
-
   it('can run on the last day of shorter months instead', async () => {
     await newJob()
     await userEvent.click(screen.getByRole('radio', { name: 'Monthly' }))
     expect(screen.queryByLabelText('Run on the last day of shorter months')).not.toBeInTheDocument()
     await userEvent.click(screen.getByLabelText('31'))
     await userEvent.click(screen.getByLabelText('Run on the last day of shorter months'))
-    expect(screen.getByText(/runs on 30 April/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.saveJob).toHaveBeenCalledWith(
       expect.objectContaining({ month_days: [1, 31], last_day_fallback: true }),
@@ -175,6 +161,7 @@ describe('JobEditor conditions', () => {
         defaults={defaults}
         checks={gcloudOut}
         actions={[]}
+        onActionSaved={() => {}}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}
@@ -202,6 +189,7 @@ describe('JobEditor conditions', () => {
           ],
         }}
         actions={[]}
+        onActionSaved={() => {}}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}
@@ -235,53 +223,160 @@ describe('JobEditor conditions', () => {
 describe('JobEditor actions', () => {
   beforeEach(() => vi.mocked(api.saveJob).mockReset())
 
-  const me = action({
-    id: 'me',
-    name: 'Me',
-    target: { ...action().target, to: 'user', recipient: 'U0123ABCD' },
-  })
+  const me = recipient({ id: 'me', name: 'Xavier', slack_id: 'U0123ABCD' })
+  const alert = action({ recipients: [recipient(), me] })
+  const digest = action({ id: 'digest', name: 'Digest workflow', recipients: [me] })
 
-  function editor(actions = [action(), me]) {
+  function editor(actions = [alert, digest]) {
+    const onActionSaved = vi.fn()
     render(
       <JobEditor
         job={null}
         defaults={defaults}
         checks={signedIn}
         actions={actions}
+        onActionSaved={onActionSaved}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}
       />,
     )
+    return onActionSaved
   }
 
-  it('picks what to do on success and on failure, and saves them', async () => {
-    editor()
+  async function named() {
     await userEvent.type(screen.getByLabelText('Name'), 'Monthly report')
     await userEvent.type(screen.getByLabelText('Prompt'), '/report')
+  }
+
+  it('picks an action and which of its recipients it sends to, and saves them', async () => {
+    editor()
+    await named()
     await userEvent.click(screen.getByRole('button', { name: 'Add action on failure' }))
-    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Ops channel/ }))
+    const menu = within(screen.getByRole('menu', { name: 'Actions on failure' }))
+    // Each action by its name alone.
+    expect(menu.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Alert workflow',
+      'Digest workflow',
+    ])
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Alert workflow' }))
+    const toWhom = screen.getByRole('combobox', { name: 'Who Alert workflow sends to on failure' })
+    expect(toWhom).toHaveValue('')
+    // The action's own recipients, and a way to add one.
+    expect(
+      within(toWhom)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['No recipient', 'Ops channel', 'Xavier', 'New recipient…'])
+    await userEvent.selectOptions(toWhom, 'ops')
+    // The same action again, to someone else: only Xavier is left, so it is picked.
     await userEvent.click(screen.getByRole('button', { name: 'Add action on failure' }))
-    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Me/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add action on success' }))
-    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Me/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Alert workflow/ }))
     const failure = within(screen.getByRole('group', { name: 'On failure' }))
-    expect(failure.getByText('Slack · Posts in channel C0123ABCD')).toBeInTheDocument()
-    expect(failure.getByText('Slack · Messages user U0123ABCD')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Me on failure' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Add action on complete' }))
-    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: /Ops channel/ }))
+    expect(failure.getAllByRole('combobox').map((c) => (c as HTMLSelectElement).value)).toEqual([
+      'ops',
+      'me',
+    ])
+    // An action with one recipient sends to it at once.
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on success' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Digest workflow/ }))
+    const [first] = failure.getAllByRole('button', { name: 'Remove Alert workflow on failure' })
+    if (first) await userEvent.click(first)
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.saveJob).toHaveBeenCalledWith(
-      expect.objectContaining({ on_success: ['me'], on_failure: ['ops'], on_complete: ['ops'] }),
+      expect.objectContaining({
+        on_success: [use('me', 'digest')],
+        on_failure: [use('me')],
+        on_complete: [],
+      }),
+      null,
+    )
+  })
+
+  it('uses an action with no recipient', async () => {
+    editor([action({ recipients: [] })])
+    await named()
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on success' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Alert workflow' }))
+    expect(
+      screen.getByRole('combobox', { name: 'Who Alert workflow sends to on success' }),
+    ).toHaveValue('')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ on_success: [use('')] }),
+      null,
+    )
+  })
+
+  it('lets Claude send to anyone during the run, and only then', async () => {
+    editor()
+    await named()
+    await userEvent.click(screen.getByRole('button', { name: 'Add action during the run' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Alert workflow' }))
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Who Alert workflow sends to during the run' }),
+      'Anyone',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on success' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Alert workflow' }))
+    const onSuccess = screen.getByRole('combobox', {
+      name: 'Who Alert workflow sends to on success',
+    })
+    expect(within(onSuccess).queryByRole('option', { name: 'Anyone' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ during_run: [use('*')] }),
+      null,
+    )
+  })
+
+  it('picks who Claude can send to during the run, and saves it', async () => {
+    editor()
+    await named()
+    await userEvent.click(screen.getByRole('button', { name: 'Add action during the run' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Alert workflow/ }))
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Who Alert workflow sends to during the run' }),
+      'ops',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ during_run: [use()], on_success: [], on_failure: [] }),
+      null,
+    )
+  })
+
+  it('adds a recipient to the action from the menu, and picks it', async () => {
+    vi.mocked(api.saveAction).mockImplementation((a) => Promise.resolve(a))
+    const onActionSaved = editor([action()])
+    await named()
+    await userEvent.click(screen.getByRole('button', { name: 'Add action on success' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /Alert workflow/ }))
+    const toWhom = screen.getByRole('combobox', { name: 'Who Alert workflow sends to on success' })
+    expect(toWhom).toHaveValue('ops')
+    await userEvent.selectOptions(toWhom, 'New recipient…')
+    const form = within(screen.getByRole('group', { name: 'New recipient of Alert workflow' }))
+    await userEvent.type(form.getByLabelText('Name'), 'Ops')
+    await userEvent.type(form.getByLabelText('Slack ID'), 'C0999ZZZZ')
+    await userEvent.click(form.getByRole('button', { name: 'Add recipient' }))
+    // Saved in the action, with an id the action has not given yet.
+    const saved = action({
+      recipients: [recipient(), { id: 'ops-2', name: 'Ops', slack_id: 'C0999ZZZZ' }],
+    })
+    expect(api.saveAction).toHaveBeenCalledWith(saved, 'alert')
+    expect(onActionSaved).toHaveBeenCalledWith(saved)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ on_success: [use('ops-2')] }),
       null,
     )
   })
 
   it('has nothing to pick before an action exists', () => {
     editor([])
+    expect(screen.getByRole('button', { name: 'Add action during the run' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Add action on success' })).toBeDisabled()
-    expect(screen.getByText(/No action yet/)).toBeInTheDocument()
+    expect(screen.getAllByText(/No action yet/)).toHaveLength(2)
   })
 })
 
@@ -300,6 +395,7 @@ describe('JobEditor prompt', () => {
         defaults={defaults}
         checks={signedIn}
         actions={[]}
+        onActionSaved={() => {}}
         onClose={() => {}}
         onSaved={() => {}}
         onDeleted={() => {}}

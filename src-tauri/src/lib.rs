@@ -7,6 +7,7 @@ pub mod gcloud;
 pub mod interactive;
 pub mod jobs;
 pub mod launchd;
+pub mod mcp;
 pub mod paths;
 pub mod runner;
 pub mod runs;
@@ -45,6 +46,7 @@ pub fn run() {
             commands::delete_condition,
             commands::check_condition,
             commands::list_repos,
+            commands::open_on_github,
             commands::list_actions,
             commands::save_action,
             commands::delete_action,
