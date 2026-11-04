@@ -90,3 +90,41 @@ describe('editor drafts', () => {
     expect(draftErrors({ ...draft, repeat: 'monthly', monthDays: [31] })).toEqual([])
   })
 })
+
+describe('pull request jobs', () => {
+  const watching = {
+    ...toDraft(null, defaults),
+    starts: 'trigger' as const,
+    trigger: 'pull_request_merged' as const,
+    repos: ['o/a', 'o/b'],
+    mine: false,
+  }
+
+  it('sends the repositories as an event', () => {
+    expect(toJob(watching).event).toEqual({
+      kind: 'pull_request_merged',
+      repos: ['o/a', 'o/b'],
+      mine: false,
+    })
+    expect(toJob({ ...watching, starts: 'schedule' }).event).toBeNull()
+  })
+
+  it('needs a repository', () => {
+    expect(draftErrors({ ...watching, repos: [] })).toEqual(['Add a repository to watch.'])
+    expect(draftErrors({ ...watching, repeat: 'weekly', weekdays: [] })).toEqual([])
+  })
+
+  it('opens a saved one on its repositories, and a new one on yours only', () => {
+    const draft = toDraft(toJob(watching), defaults)
+    expect([draft.starts, draft.trigger, draft.repos, draft.mine]).toEqual([
+      'trigger',
+      'pull_request_merged',
+      ['o/a', 'o/b'],
+      false,
+    ])
+    expect([toDraft(null, defaults).mine, toDraft(null, defaults).trigger]).toEqual([
+      true,
+      'pull_request_opened',
+    ])
+  })
+})

@@ -1,5 +1,6 @@
-//! Each enabled job is a launchd agent, `com.claude-jobs.<id>`, that calls this app's binary with `run <id>`. One more
-//! agent, `com.claude-jobs.app.catch-up`, calls `catch-up` at login while a job is enabled.
+//! Each enabled job on a schedule is a launchd agent, `com.claude-jobs.<id>`, that calls this app's binary with
+//! `run <id>`. One more agent, `com.claude-jobs.app.catch-up`, calls `catch-up` at login while such a job is enabled,
+//! and `com.claude-jobs.app.events` calls `poll` every minute while a job an event starts is.
 
 use crate::jobs::Job;
 use crate::paths;
@@ -12,6 +13,9 @@ use std::process::{Command, Output};
 const LABEL_PREFIX: &str = "com.claude-jobs.";
 /// Not a valid job id, so it cannot clash with a job's agent.
 const CATCH_UP: &str = "app.catch-up";
+const EVENTS: &str = "app.events";
+/// How often the events agent checks, in seconds.
+const EVENTS_INTERVAL: u32 = 60;
 
 pub fn label(job_id: &str) -> String {
     format!("{LABEL_PREFIX}{job_id}")
@@ -60,6 +64,8 @@ struct Agent {
     program_arguments: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     start_calendar_interval: Option<CalendarInterval>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_interval: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     run_at_load: bool,
     environment_variables: BTreeMap<String, String>,
@@ -129,6 +135,7 @@ fn job_agent(job: &Job, exe: &Path) -> Result<Agent, String> {
         label: label(&job.id),
         program_arguments: vec![exe.display().to_string(), "run".into(), job.id.clone()],
         start_calendar_interval: Some(interval(job)),
+        start_interval: None,
         run_at_load: false,
         environment_variables: BTreeMap::from([
             ("PATH".to_string(), job.path.clone()),
@@ -151,18 +158,33 @@ fn load(id: &str, agent: &Agent) -> Result<(), String> {
     Ok(())
 }
 
-/// Makes launchd match the job: loaded with its schedule when enabled, gone when paused.
+/// The agent that starts `job`: its own, or the events agent for a job an event starts.
+pub fn agent_of(job: &Job) -> &str {
+    if job.event.is_some() {
+        EVENTS
+    } else {
+        &job.id
+    }
+}
+
+/// Makes launchd match the job: loaded with its schedule when enabled, gone when paused or started by an event.
 pub fn apply(job: &Job, exe: &Path) -> Result<(), String> {
-    if !job.enabled {
+    if !job.enabled || job.event.is_some() {
         remove(&job.id);
         return Ok(());
     }
     load(&job.id, &job_agent(job, exe)?)
 }
 
-/// Loads the login agent while a job is enabled, and removes it otherwise. Loading it runs it once.
-pub fn apply_catch_up(jobs: &[Job], exe: &Path) -> Result<(), String> {
-    if !jobs.iter().any(|j| j.enabled) {
+/// The agents jobs share: the login catch-up, and the events check.
+pub fn apply_shared(jobs: &[Job], exe: &Path) -> Result<(), String> {
+    apply_catch_up(jobs, exe)?;
+    apply_events(jobs, exe)
+}
+
+/// Loads the login agent while a job on a schedule is enabled, and removes it otherwise. Loading it runs it once.
+fn apply_catch_up(jobs: &[Job], exe: &Path) -> Result<(), String> {
+    if !jobs.iter().any(|j| j.enabled && j.event.is_none()) {
         remove(CATCH_UP);
         return Ok(());
     }
@@ -174,6 +196,7 @@ pub fn apply_catch_up(jobs: &[Job], exe: &Path) -> Result<(), String> {
         label: label(CATCH_UP),
         program_arguments: vec![exe.display().to_string(), "catch-up".into()],
         start_calendar_interval: None,
+        start_interval: None,
         run_at_load: true,
         environment_variables: BTreeMap::from([
             ("PATH".to_string(), "/usr/bin:/bin:/usr/sbin:/sbin".to_string()),
@@ -184,6 +207,37 @@ pub fn apply_catch_up(jobs: &[Job], exe: &Path) -> Result<(), String> {
         process_type: "Background".into(),
     };
     load(CATCH_UP, &agent)
+}
+
+/// Loads the events agent while a job an event starts is enabled, and removes it otherwise. Loading it runs it once.
+fn apply_events(jobs: &[Job], exe: &Path) -> Result<(), String> {
+    if !jobs.iter().any(|j| j.enabled && j.event.is_some()) {
+        remove(EVENTS);
+        return Ok(());
+    }
+    if program_of(EVENTS).as_deref() == Some(&*exe.display().to_string()) && is_loaded(EVENTS) {
+        return Ok(());
+    }
+    load(EVENTS, &events_agent(exe)?)
+}
+
+fn events_agent(exe: &Path) -> Result<Agent, String> {
+    let log = log_path(EVENTS)?;
+    Ok(Agent {
+        label: label(EVENTS),
+        program_arguments: vec![exe.display().to_string(), "poll".into()],
+        start_calendar_interval: None,
+        start_interval: Some(EVENTS_INTERVAL),
+        run_at_load: true,
+        // The GitHub CLI and the runs get each job's own PATH.
+        environment_variables: BTreeMap::from([
+            ("PATH".to_string(), "/usr/bin:/bin:/usr/sbin:/sbin".to_string()),
+            ("HOME".to_string(), paths::home().display().to_string()),
+        ]),
+        standard_out_path: log.clone(),
+        standard_error_path: log,
+        process_type: "Background".into(),
+    })
 }
 
 pub fn remove(job_id: &str) {
@@ -225,6 +279,7 @@ mod tests {
             on_success: vec![],
             on_failure: vec![],
             on_complete: vec![],
+            event: None,
         }
     }
 
@@ -246,8 +301,33 @@ mod tests {
     }
 
     #[test]
-    fn the_login_agent_cannot_clash_with_a_job() {
+    fn the_shared_agents_cannot_clash_with_a_job() {
         assert!(!crate::jobs::valid_id(CATCH_UP));
+        assert!(!crate::jobs::valid_id(EVENTS));
+    }
+
+    #[test]
+    fn the_events_agent_checks_every_minute_from_load() {
+        let agent = events_agent(Path::new("/Applications/Claude Jobs.app/Contents/MacOS/claude-jobs")).expect("agent");
+        let mut xml = Vec::new();
+        plist::to_writer_xml(&mut xml, &agent).expect("serializes");
+        let xml = String::from_utf8(xml).expect("UTF-8");
+        assert!(xml.contains("<key>StartInterval</key>\n\t<integer>60</integer>"), "{xml}");
+        assert!(xml.contains("<key>RunAtLoad</key>") && xml.contains("<string>poll</string>"), "{xml}");
+        assert!(!xml.contains("StartCalendarInterval"));
+    }
+
+    #[test]
+    fn a_job_an_event_starts_has_the_events_agent() {
+        let watching = Job {
+            event: Some(crate::events::Event {
+                kind: crate::events::EventKind::PullRequestOpened,
+                repos: vec!["o/a".into()],
+                mine: true,
+            }),
+            ..job(vec![])
+        };
+        assert_eq!((agent_of(&job(vec![])), agent_of(&watching)), ("t", EVENTS));
     }
 
     #[test]

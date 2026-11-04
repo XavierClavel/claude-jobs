@@ -1,6 +1,7 @@
 # Claude Jobs
 
-A macOS app that runs Claude Code prompts on a schedule, headless, and shows how each run went.
+A macOS app that runs Claude Code prompts on a schedule, or when a pull request is opened or merged, headless, and
+shows how each run went.
 
 Each job is a prompt (such as `/photobook-monitor`), a time, when it repeats (every day, on days of the week, or on days
 of the month), and the tools it may use without asking. The app turns it into a launchd agent that calls the app's own
@@ -22,6 +23,36 @@ runs show as **Catch-up** in the history; what the agent did is in `logs/app.cat
 
 A run that fails or times out puts up an alert that stays on screen until you close it, with its error and an **Open
 Claude Jobs** button.
+
+## Triggers
+
+A job can start on a trigger instead of a schedule: in the editor, **Starts → On trigger**, then the trigger, **Pull
+request opened** or **Pull request merged**, the repositories to watch, picked from those your GitHub account can
+see, and whether only your pull requests start it. Saving asks GitHub about each new repository and writes it the
+way GitHub does.
+
+GitHub cannot reach the Mac, so while such a job is enabled a launchd agent (`com.claude-jobs.app.events`, calling
+`claude-jobs poll`) checks every minute with the GitHub CLI: `gh pr list` for each repository, signed in as you (run
+`gh auth login` once; `brew install gh` if it is missing), with the job's PATH. Each pull request opened, or merged,
+since the job began watching starts one run, shown as **PR #21 repo** in the history. Its prompt is the job's,
+followed by the pull request:
+
+```
+/changelog
+
+Pull request XavierClavel/claude-jobs#21 merged: feat: say in the jobs list when a job is weekly
+https://github.com/XavierClavel/claude-jobs/pull/21
+By XavierClavel, from jobs-list-weekly-flag-cfc59f9f into main, merged at 2026-11-04T09:12:02Z.
+```
+
+A skill gets those lines as its arguments. A job runs once at a time: a pull request that comes while it runs, or
+waits for its conditions, starts it at the first check after that run, oldest first. Those that came while the Mac
+slept start it when it wakes; those that came while the job was paused do not, and neither do those from before a
+change of trigger. A failed check (gh signed out, no network) shows on the job and under **Needs attention**; the
+pull requests that came meanwhile start it once a check works again. What each job has seen is in `events.json`, and
+what the agent did in `logs/app.events.launchd.log`.
+
+**Run now** runs the prompt alone, with no pull request.
 
 ## Conditions
 
@@ -124,6 +155,8 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 - `jobs.json`: the jobs.
 - `conditions.json`: the last check of each condition (see Conditions).
 - `actions.json`: what jobs can do when a run ends, with their Slack workflows' webhooks (see Actions).
+- `events.json`: for each job a pull request starts, when it began watching each repository, the pull requests it
+  started for, and its last check (see Triggers).
 - `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id, what its
   actions did), with `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside it. The last 100 runs are
   kept.
@@ -145,10 +178,11 @@ Claude Jobs widget uses `status` and `watch`:
 - `claude-jobs start <job>` starts a run now, like **Run now**.
 - `claude-jobs watch <job>` opens Terminal on a running interactive job, like **Watch**.
 - `claude-jobs save` creates or changes a job from JSON on stdin, like **Save** in the editor, and prints it the way
-  `status` lists it. The fields are a job's in `jobs.json`. A new job needs `id`, `name`, `prompt`, `hour` and `minute`;
-  the others get the editor's defaults, such as the working folder `~/.claude-jobs/workspace`. For an existing `id`,
-  the fields given replace the job's and the others stay. A field it does not know is refused, not dropped, and so is
-  an id in `conditions`, `on_success`, `on_failure` or `on_complete` that names nothing.
+  `status` lists it. The fields are a job's in `jobs.json`. A new job needs `id`, `name` and `prompt`, and `hour` and
+  `minute` unless a trigger starts it; the others get the editor's defaults, such as the working folder
+  `~/.claude-jobs/workspace`. For an existing `id`, the fields given replace the job's and the others stay. A field it
+  does not know is refused, not dropped, and so is an id in `conditions`, `on_success`, `on_failure` or `on_complete`
+  that names nothing.
 
   ```sh
   claude-jobs save <<'EOF'
@@ -157,8 +191,25 @@ Claude Jobs widget uses `status` and `watch`:
   EOF
   ```
 
-Errors go to stderr, with exit code 1. These commands came in version 0.2.0, and `save` in 0.5.0: an older binary
-opens its window instead, so check `CFBundleShortVersionString` before calling one.
+  A trigger is the job's `event`: its `kind`, `pull_request_opened` or `pull_request_merged`, the `repos` it watches,
+  and `mine`, whether only your pull requests start it (true when left out). Saving checks each new repository with
+  GitHub, as the editor does. `"event": null` puts a job back on its schedule.
+
+  ```sh
+  claude-jobs save <<'EOF'
+  {"id": "changelog", "name": "Changelog", "prompt": "/changelog",
+   "event": {"kind": "pull_request_merged", "repos": ["XavierClavel/claude-jobs"]}}
+  EOF
+  ```
+
+  `status` lists a triggered job with its `event`, and how its last check went in `watch`: `checked_at`, `problem`,
+  and `pending`, the pull requests waiting for its current run. Its `next_run` and `previous_run` are null, and each
+  of its runs has the `pull_request` it started for.
+- `claude-jobs repos` prints the repositories a trigger can watch, those your GitHub account can see, most recently
+  pushed first, as JSON: `name` (`owner/name`), `private`, `pushed_at` and `owner_avatar`.
+
+Errors go to stderr, with exit code 1. These commands came in version 0.2.0, `save` in 0.5.0, and `repos` and triggers
+in 0.7.0: an older binary opens its window instead, so check `CFBundleShortVersionString` before calling one.
 
 ## Stack
 

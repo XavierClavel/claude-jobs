@@ -7,13 +7,15 @@ import type { JobView } from '../domain/JobView'
 import type { RunRecord } from '../domain/RunRecord'
 import type { Trigger } from '../domain/Trigger'
 import {
+  ago,
   clock,
   cost,
   duration,
   midSentence,
+  prRef,
   STATUS_LABEL,
   scheduleText,
-  TRIGGER_LABEL,
+  triggerShort,
   when,
 } from '../format'
 import { isRunning, unmetOf } from '../jobs'
@@ -27,6 +29,7 @@ const STARTED_BY: Record<Trigger, string> = {
   schedule: 'from the schedule',
   manual: 'by hand',
   'catch-up': 'to catch up at login',
+  'pull-request': 'for a pull request',
 }
 
 const RECENT = 5
@@ -67,7 +70,7 @@ export function JobDetail({
             {!job.enabled ? (
               <Chip tone="muted">Paused</Chip>
             ) : job.loaded ? (
-              <Chip tone="ok">Scheduled</Chip>
+              <Chip tone="ok">{job.event ? 'Watching' : 'Scheduled'}</Chip>
             ) : (
               <Chip tone="warn">Not loaded in launchd</Chip>
             )}
@@ -111,8 +114,9 @@ export function JobDetail({
                 Running
               </div>
               <div>
-                Started {midSentence(when(last.started_at))} {STARTED_BY[last.trigger]} · times out
-                at {timesOutAt(last.started_at, job)}
+                Started {midSentence(when(last.started_at))}{' '}
+                {last.pull_request ? `for ${prRef(last.pull_request)}` : STARTED_BY[last.trigger]} ·
+                times out at {timesOutAt(last.started_at, job)}
               </div>
               {job.interactive && (
                 <div className="muted small-text">
@@ -145,6 +149,12 @@ export function JobDetail({
             </p>
           )
         )}
+        {job.enabled && job.watch?.problem && (
+          <p className="note note-warn" role="status">
+            {job.watch.problem} Until then, no pull request starts it; those that come meanwhile
+            start it once the check works again.
+          </p>
+        )}
 
         <div className="grid-2">
           <section className="card" aria-label="Prompt">
@@ -154,10 +164,11 @@ export function JobDetail({
           <section className="card" aria-label="Setup">
             <div className="lbl">Setup</div>
             <dl className="kv">
-              <dt>Schedule</dt>
+              <dt>{job.event ? 'Starts' : 'Schedule'}</dt>
               <dd>
                 {scheduleText(job)}
                 {job.enabled && job.next_run ? ` · next ${midSentence(when(job.next_run))}` : ''}
+                {job.enabled && job.event && watchText(job)}
               </dd>
               <dt>Timeout</dt>
               <dd>{job.timeout_minutes} minutes</dd>
@@ -234,6 +245,16 @@ export function JobDetail({
   )
 }
 
+// How watching for pull requests goes: " · checked 30 s ago · 2 wait for this run".
+function watchText(job: JobView): string {
+  const watch = job.watch
+  if (!watch?.checked_at) return ' · first check within a minute'
+  const pending = watch.pending
+    ? ` · ${watch.pending} more ${watch.pending === 1 ? 'waits' : 'wait'} for the current run`
+    : ''
+  return ` · checked ${ago(watch.checked_at)}${pending}`
+}
+
 function timesOutAt(startedAt: string, job: JobView): string {
   const end = new Date(new Date(startedAt).getTime() + job.timeout_minutes * 60000)
   return clock(end.getHours(), end.getMinutes())
@@ -281,7 +302,7 @@ function RunsTable({ runs, onOpen }: { runs: RunRecord[]; onOpen: (run: RunRecor
             tabIndex={0}
           >
             <td>{when(r.started_at)}</td>
-            <td className="muted">{TRIGGER_LABEL[r.trigger]}</td>
+            <td className="muted">{triggerShort(r)}</td>
             <td>
               <Chip tone={runTone(r.status)}>{STATUS_LABEL[r.status]}</Chip>
             </td>

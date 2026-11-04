@@ -5,7 +5,32 @@ import { action, command, gcloudOut, signedIn } from '../test/fixtures'
 import { JobEditor } from './JobEditor'
 
 vi.mock('../api', () => ({
-  api: { saveJob: vi.fn(), listSkills: vi.fn(() => Promise.resolve([])) },
+  api: {
+    saveJob: vi.fn(),
+    listSkills: vi.fn(() => Promise.resolve([])),
+    listRepos: vi.fn(() =>
+      Promise.resolve([
+        {
+          name: 'Pictarine/web-apps',
+          private: true,
+          pushed_at: '2026-11-04T08:58:21Z',
+          owner_avatar: 'https://avatars.githubusercontent.com/u/1?v=4',
+        },
+        {
+          name: 'XavierClavel/claude-jobs',
+          private: false,
+          pushed_at: '2026-11-03T11:37:24Z',
+          owner_avatar: 'https://avatars.githubusercontent.com/u/2?v=4',
+        },
+        {
+          name: 'Pictarine/backend-picta-api',
+          private: true,
+          pushed_at: null,
+          owner_avatar: 'https://avatars.githubusercontent.com/u/1?v=4',
+        },
+      ]),
+    ),
+  },
   errorsOf: () => [],
 }))
 
@@ -37,6 +62,48 @@ describe('JobEditor', () => {
     expect(screen.getByRole('radio', { name: 'Daily' })).toBeChecked()
     expect(screen.queryByRole('group', { name: 'Days of the week' })).not.toBeInTheDocument()
     expect(screen.getByText('Every day at 09:00')).toBeInTheDocument()
+  })
+
+  it('saves a job a merged pull request starts, its repositories picked from a search', async () => {
+    await newJob()
+    await userEvent.click(screen.getByRole('radio', { name: 'On trigger' }))
+    expect(screen.getByRole('radio', { name: 'Pull request opened' })).toBeChecked()
+    await userEvent.click(screen.getByRole('radio', { name: 'Pull request merged' }))
+    expect(screen.queryByRole('radio', { name: 'Daily' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add repository' }))
+    const search = screen.getByRole('combobox', { name: 'Search repositories' })
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(3)
+    // Each with its owner's picture, small.
+    expect(options[1]?.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://avatars.githubusercontent.com/u/2?v=4&s=40',
+    )
+    await userEvent.type(search, 'picta api')
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Pictarine/backend-picta-apiPrivate',
+    ])
+    await userEvent.type(search, '{enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Add repository' }))
+    // One already added is not offered again.
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+    await userEvent.click(screen.getByRole('option', { name: /claude-jobs/ }))
+    expect(screen.getByLabelText('Only my pull requests')).toBeChecked()
+    expect(
+      screen.getByText(
+        'Each of your pull requests merged in Pictarine/backend-picta-api or XavierClavel/claude-jobs',
+      ),
+    ).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove Pictarine/backend-picta-api' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: { kind: 'pull_request_merged', repos: ['XavierClavel/claude-jobs'], mine: true },
+      }),
+      null,
+    )
   })
 
   it('picks days of the week for a weekly job, starting on Monday', async () => {

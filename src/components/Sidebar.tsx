@@ -32,6 +32,7 @@ export function JobLine({ job, checks }: { job: JobView; checks: Checks }) {
   if (!job.loaded) return <>Not loaded in launchd</>
   const schedule = scheduleShort(job)
   if (unmet.length) return <>{`${schedule} · waits for ${waitsFor(unmet, checks)}`}</>
+  if (job.watch?.problem) return <>{`${schedule} · cannot check GitHub`}</>
   if (last && failed(last.status))
     return <>{`${schedule} · last run ${STATUS_LABEL[last.status].toLowerCase()}`}</>
   if (!job.next_run) return <>{schedule}</>

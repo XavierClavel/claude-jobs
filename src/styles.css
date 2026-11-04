@@ -988,6 +988,11 @@ tbody tr:hover td {
   text-overflow: ellipsis;
 }
 
+/* Its top border separates it from the row above: hover leaves it as it is. */
+.up:hover:not(:disabled) {
+  border-color: var(--line-soft);
+}
+
 .up:hover:not(:disabled) .up-name {
   color: var(--accent);
 }
@@ -1430,6 +1435,15 @@ textarea {
   border-left: 1px solid var(--line);
 }
 
+/* As wide as its card, each choice an equal share. */
+.segmented.wide {
+  display: flex;
+}
+
+.segmented.wide label {
+  flex: 1;
+}
+
 .segmented label:has(:checked) {
   background: var(--accent);
   color: var(--accent-fg);
@@ -1859,4 +1873,59 @@ button.pick:hover:not(:disabled),
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+/* The repositories a job watches, and the search over those your GitHub account can see. */
+.repo-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-picker .picker {
+  top: 34px;
+  right: 0;
+  width: min(380px, 100%);
+}
+
+.picker-search {
+  margin-bottom: 4px;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.picker-list .pick {
+  cursor: pointer;
+}
+
+.picker-note {
+  margin: 0;
+  padding: 6px 8px;
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.owner-avatar {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--chip);
+}
+
+.owner-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
 }

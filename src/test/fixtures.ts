@@ -27,12 +27,14 @@ export function job(overrides: Partial<JobView> = {}): JobView {
     on_success: [],
     on_failure: [],
     on_complete: [],
+    event: null,
     label: 'com.claude-jobs.photobook-monitor',
     loaded: true,
     next_run: '2026-10-27T09:00:00+01:00',
     last_run: null,
     waiting: null,
     unmet_conditions: [],
+    watch: null,
     ...overrides,
   }
 }
@@ -58,6 +60,7 @@ export function run(overrides: Partial<RunRecord> = {}): RunRecord {
     interactive: false,
     tmux_session: null,
     actions: [],
+    pull_request: null,
     ...overrides,
   }
 }

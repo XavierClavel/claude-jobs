@@ -1,6 +1,7 @@
 //! Jobs: a prompt, when to run it and how. Stored in `~/.claude-jobs/jobs.json`.
 
 use crate::conditions::CLAUDE;
+use crate::events::{self, Event};
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
@@ -61,6 +62,10 @@ pub struct Job {
     /// What to do when a run ends, however it went: on top of `on_success` or `on_failure`.
     #[serde(default)]
     pub on_complete: Vec<String>,
+    /// What starts the job instead of its schedule, such as a pull request opened in a repository; none for a job
+    /// that runs on its schedule. `hour`, `minute` and the days are kept but unused meanwhile. See `events`.
+    #[serde(default)]
+    pub event: Option<Event>,
 }
 
 fn default_timeout() -> u32 {
@@ -264,6 +269,12 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
         Some(d) if job.path.trim().is_empty() => d.path.clone(),
         _ => job.path.trim().to_string(),
     };
+    if let Some(event) = job.event.take() {
+        match events::validate(event, &job.path) {
+            Ok(event) => job.event = Some(event),
+            Err(found) => errors.extend(found),
+        }
+    }
     if job.interactive && crate::interactive::tmux_bin(&job.path).is_none() {
         errors.push(
             "Interactive session needs tmux, which is not installed: click Install tmux, or run brew install tmux."
@@ -304,6 +315,7 @@ mod tests {
             on_success: vec![],
             on_failure: vec![],
             on_complete: vec![],
+            event: None,
         }
     }
 

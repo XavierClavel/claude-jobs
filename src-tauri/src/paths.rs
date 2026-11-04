@@ -30,6 +30,11 @@ pub fn actions_file() -> PathBuf {
     base().join("actions.json")
 }
 
+/// What each job an event starts has seen: see `events`.
+pub fn events_file() -> PathBuf {
+    base().join("events.json")
+}
+
 pub fn runs_dir() -> PathBuf {
     base().join("runs")
 }

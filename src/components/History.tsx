@@ -7,11 +7,12 @@ import type { Trigger } from '../domain/Trigger'
 import {
   cost,
   duration,
+  prRef,
   STATUS_LABEL,
   shortDate,
   stopwatch,
-  TRIGGER_LABEL,
   tally,
+  triggerShort,
   when,
 } from '../format'
 import { failed } from '../jobs'
@@ -23,6 +24,7 @@ const FROM: Record<Trigger, string> = {
   schedule: 'from the schedule',
   manual: 'started by hand',
   'catch-up': 'caught up at login',
+  'pull-request': 'started for a pull request',
 }
 
 // The job's runs, newest first, beside the one picked: the run asked for, or else the newest.
@@ -122,7 +124,7 @@ export function History({
                   )}
                 </span>
                 <span className="run-row-meta">
-                  {TRIGGER_LABEL[r.trigger]} ·{' '}
+                  {triggerShort(r)} ·{' '}
                   {r.status === 'ok' ? 'OK' : STATUS_LABEL[r.status].toLowerCase()}
                   {r.num_turns !== null &&
                     ` · ${r.num_turns} ${r.num_turns === 1 ? 'turn' : 'turns'}`}
@@ -170,7 +172,9 @@ function Run({ detail, timeout }: { detail: RunDetail; timeout: number }) {
         </div>
         <span className="muted small-text">
           {detail.exit_code !== null ? `exit code ${detail.exit_code} · ` : ''}
-          {FROM[detail.trigger]}
+          {detail.pull_request
+            ? `started for ${prRef(detail.pull_request)}: ${detail.pull_request.title}`
+            : FROM[detail.trigger]}
         </span>
       </div>
       <div className="stats">

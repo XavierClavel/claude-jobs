@@ -1,4 +1,5 @@
-//! When a job runs next, in local time, as launchd computes it from `StartCalendarInterval`.
+//! When a job runs next, in local time, as launchd computes it from `StartCalendarInterval`. A job an event starts has
+//! no scheduled time.
 
 use crate::jobs::Job;
 use chrono::{DateTime, Datelike, Days, Local, NaiveDate, TimeZone};
@@ -20,7 +21,7 @@ fn runs_on(job: &Job, day: NaiveDate) -> bool {
 }
 
 fn slot(job: &Job, day: NaiveDate) -> Option<DateTime<Local>> {
-    if !runs_on(job, day) {
+    if job.event.is_some() || !runs_on(job, day) {
         return None;
     }
     let at = day.and_hms_opt(job.hour.into(), job.minute.into(), 0)?;
@@ -89,6 +90,7 @@ mod tests {
             on_success: vec![],
             on_failure: vec![],
             on_complete: vec![],
+            event: None,
         }
     }
 
@@ -218,6 +220,21 @@ mod tests {
     fn a_paused_job_is_not_caught_up() {
         let paused = Job { enabled: false, ..job(9, 0, vec![]) };
         assert_eq!(missed_run(&paused, at(2026, 10, 27, 9, 16), None::<DateTime<Local>>), None);
+    }
+
+    #[test]
+    fn a_job_an_event_starts_has_no_scheduled_time() {
+        let watching = Job {
+            event: Some(crate::events::Event {
+                kind: crate::events::EventKind::PullRequestOpened,
+                repos: vec!["o/a".into()],
+                mine: true,
+            }),
+            ..job(9, 0, vec![])
+        };
+        let now = at(2026, 10, 27, 9, 16);
+        assert_eq!((next_run(&watching, now), previous_run(&watching, now)), (None, None));
+        assert_eq!(missed_run(&watching, now, None::<DateTime<Local>>), None);
     }
 
     #[test]

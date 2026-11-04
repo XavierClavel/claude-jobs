@@ -260,6 +260,7 @@ impl Message {
             Trigger::Schedule => None,
             Trigger::Manual => Some("started by hand".to_string()),
             Trigger::CatchUp => Some("caught up at login".to_string()),
+            Trigger::PullRequest => rec.pull_request.as_ref().map(|pr| format!("for {}#{}", pr.repo, pr.number)),
         };
         for fact in
             [rec.duration_s.map(duration), rec.cost_usd.map(|usd| format!("${usd:.2}")), trigger].into_iter().flatten()
@@ -618,6 +619,18 @@ mod tests {
         assert_eq!(
             Message::for_run(&job(), &by_hand).summary,
             "✅ Photobook monitor finished · 42 s · started by hand"
+        );
+        let mut for_pr = ended("ok", None, None);
+        for_pr.trigger = Trigger::PullRequest;
+        for_pr.pull_request = Some(
+            serde_json::from_value(serde_json::json!({"repo": "o/a", "number": 21, "title": "t",
+                "url": "https://github.com/o/a/pull/21", "author": "me", "head": "f", "base": "main",
+                "draft": false, "created_at": "2026-11-02T08:00:00Z"}))
+            .expect("parses"),
+        );
+        assert_eq!(
+            Message::for_run(&job(), &for_pr).summary,
+            "✅ Photobook monitor finished · 2 min 3 s · $0.55 · for o/a#21"
         );
     }
 

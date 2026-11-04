@@ -1,4 +1,6 @@
 import type { Job } from './domain/Job'
+import type { PullRequest } from './domain/PullRequest'
+import type { RunRecord } from './domain/RunRecord'
 import type { RunStatus } from './domain/RunStatus'
 import type { Trigger } from './domain/Trigger'
 
@@ -41,6 +43,26 @@ export const TRIGGER_LABEL: Record<Trigger, string> = {
   schedule: 'Schedule',
   manual: 'By hand',
   'catch-up': 'Catch-up',
+  'pull-request': 'Pull request',
+}
+
+// "o/a#21"
+export const prRef = (pr: PullRequest) => `${pr.repo}#${pr.number}`
+
+// What started a run, in a few words for a list of runs: "Schedule", or "PR #21 claude-jobs".
+export function triggerShort(run: Pick<RunRecord, 'trigger' | 'pull_request'>): string {
+  const pr = run.pull_request
+  if (run.trigger === 'pull-request' && pr) return `PR #${pr.number} ${repoName(pr.repo)}`
+  return TRIGGER_LABEL[run.trigger]
+}
+
+// "claude-jobs" for "XavierClavel/claude-jobs"
+const repoName = (repo: string) => repo.split('/').pop() ?? repo
+
+// "a or b", "a, b or c"
+function orList(items: string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -49,9 +71,21 @@ export function clock(hour: number, minute: number): string {
   return `${pad(hour)}:${pad(minute)}`
 }
 
+// What starts a job: its schedule, or its event.
 export function scheduleText(
-  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days' | 'last_day_fallback'>,
+  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days' | 'last_day_fallback'> & {
+    event?: Job['event']
+  },
 ): string {
+  if (job.event) {
+    const merged = job.event.kind === 'pull_request_merged'
+    const which = job.event.mine
+      ? merged
+        ? 'Each of your pull requests merged'
+        : 'Each pull request you open'
+      : `Each pull request ${merged ? 'merged' : 'opened'}`
+    return `${which} in ${orList(job.event.repos)}`
+  }
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) {
     const shorter = job.last_day_fallback ? ', or the last day of shorter months' : ''
@@ -64,8 +98,12 @@ export function scheduleText(
 // The schedule in a few words, for the list of jobs: "Daily 06:00", "Weekly Mon 09:00" for one day a week,
 // "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00".
 export function scheduleShort(
-  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'>,
+  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'> & { event?: Job['event'] },
 ): string {
+  if (job.event) {
+    const verb = job.event.kind === 'pull_request_merged' ? 'merged' : 'opened'
+    return `${job.event.mine ? 'Your PRs' : 'PRs'} ${verb} in ${job.event.repos.map(repoName).join(', ')}`
+  }
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) return `Monthly ${job.month_days.map(ordinal).join(', ')} ${time}`
   if (!job.weekdays.length) return `Daily ${time}`
