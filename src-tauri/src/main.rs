@@ -14,13 +14,22 @@ fn main() {
         (Some("watch"), Some(job_id)) => std::process::exit(cli::watch(job_id)),
         (Some("save"), _) => std::process::exit(cli::save()),
         (Some("repos"), _) => std::process::exit(cli::repos()),
+        // What Claude Code starts for a run's tools, from the run's `--mcp-config`.
+        (Some("mcp"), Some(job_id)) => {
+            let run_id = args.get(2).map(String::as_str).unwrap_or_default();
+            std::process::exit(claude_jobs_lib::mcp::serve(job_id, run_id))
+        }
+        (Some("mcp"), None) => {
+            eprintln!("usage: claude-jobs mcp <job_id> <run_id>");
+            std::process::exit(2);
+        }
         (Some(command @ ("start" | "watch")), None) => {
             eprintln!("usage: claude-jobs {command} <job_id>");
             std::process::exit(2);
         }
         _ => {}
     }
-    // What the events agent calls every minute: see `events`.
+    // What the events agent calls every 5 minutes: see `events`.
     if args.first().map(String::as_str) == Some("poll") {
         std::process::exit(claude_jobs_lib::events::poll());
     }

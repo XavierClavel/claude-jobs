@@ -2,11 +2,11 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
 import type { JobView } from '../domain/JobView'
-import { action, expired, gcloudOut, job, run, signedIn } from '../test/fixtures'
+import { action, expired, gcloudOut, job, run, signedIn, use } from '../test/fixtures'
 import { JobDetail } from './JobDetail'
 
 vi.mock('../api', () => ({
-  api: { listRuns: vi.fn(() => Promise.resolve([])) },
+  api: { listRuns: vi.fn(() => Promise.resolve([])), openOnGithub: vi.fn(() => Promise.resolve()) },
 }))
 
 const noop = () => {}
@@ -50,6 +50,38 @@ describe('JobDetail', () => {
     expect(await screen.findByText('Never run')).toBeInTheDocument()
   })
 
+  it('shows the trigger, each repository a chip that opens it on GitHub', async () => {
+    detail(
+      job({
+        event: { kind: 'pull_request_opened', repos: ['o/api', 'o/web'], mine: true },
+        watch: { checked_at: null, problem: null, pending: 0 },
+      }),
+    )
+    expect(screen.getByText('Trigger')).toBeInTheDocument()
+    expect(screen.getByText(/Each pull request you open in/)).toBeInTheDocument()
+    expect(screen.getByText('First check within 5 minutes')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'web' }))
+    expect(api.openOnGithub).toHaveBeenCalledWith('o/web')
+  })
+
+  it('shows the next run on its own line, none while paused', () => {
+    const { unmount } = detail(job({ next_run: '2026-11-05T09:00:00+01:00' }))
+    expect(screen.getByText('Next run')).toBeInTheDocument()
+    expect(screen.getByText('Every day at 09:00')).toBeInTheDocument()
+    unmount()
+    detail(job({ enabled: false, next_run: null }))
+    expect(screen.getByText('None while paused')).toBeInTheDocument()
+  })
+
+  it('folds the allowed tools, one per line, until asked for', async () => {
+    detail(job({ allowed_tools: ['Read', 'Bash(gh pr view:*)'] }))
+    const fold = screen.getByText('2 tools')
+    expect(screen.getByText('Bash(gh pr view:*)')).not.toBeVisible()
+    await userEvent.click(fold)
+    expect(screen.getByText('Bash(gh pr view:*)')).toBeVisible()
+    expect(screen.getByText('Read').tagName).toBe('LI')
+  })
+
   it('offers Resume on a paused job', async () => {
     const onToggle = vi.fn()
     detail(job({ enabled: false }), { onToggle })
@@ -81,6 +113,27 @@ describe('JobDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: 'All 2 runs' }))
     expect(onHistory).toHaveBeenLastCalledWith()
   })
+
+  it('shows the pull request that started a run as a chip that opens it, not the run', async () => {
+    const onHistory = vi.fn()
+    const pr = {
+      repo: 'o/api',
+      number: 21,
+      title: 'Add a column',
+      url: 'https://github.com/o/api/pull/21',
+      author: 'me',
+      head: 'feat',
+      base: 'main',
+      draft: false,
+      created_at: '2026-11-04T10:00:00Z',
+      merged_at: null,
+    }
+    vi.mocked(api.listRuns).mockResolvedValue([run({ trigger: 'pull-request', pull_request: pr })])
+    detail(job(), { onHistory })
+    await userEvent.click(await screen.findByRole('button', { name: '#21 api' }))
+    expect(api.openOnGithub).toHaveBeenCalledWith('o/api', 21)
+    expect(onHistory).not.toHaveBeenCalled()
+  })
 })
 
 describe('JobDetail conditions', () => {
@@ -89,7 +142,7 @@ describe('JobDetail conditions', () => {
   it('warns that the next run will wait for its conditions', () => {
     detail(job({ unmet_conditions: [expired] }))
     expect(screen.getByText('Conditions not met')).toBeInTheDocument()
-    expect(screen.getByText(/login expired.*Its next run waits until then/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/login expired/)
     expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled()
   })
 
@@ -106,7 +159,7 @@ describe('JobDetail conditions', () => {
       }),
     )
     expect(screen.getAllByText('Waiting to start')).toHaveLength(2)
-    expect(screen.getByText(/Waiting since .*login expired.*starts as soon/)).toBeInTheDocument()
+    expect(screen.getByText(/Waiting since .*login expired/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Waiting…' })).toBeDisabled()
   })
 
@@ -128,9 +181,11 @@ describe('JobDetail conditions', () => {
   })
 
   it('lists what the job does when a run ends', () => {
-    detail(job({ on_failure: ['ops'] }), { actions: [action()] })
+    detail(job({ on_failure: [use()] }), { actions: [action()] })
     expect(screen.getByText('On success').nextElementSibling).toHaveTextContent('Nothing')
-    expect(screen.getByText('On failure').nextElementSibling).toHaveTextContent('Ops channel')
+    expect(screen.getByText('On failure').nextElementSibling).toHaveTextContent(
+      'Alert workflow → Ops channel',
+    )
     expect(screen.getByText('On complete').nextElementSibling).toHaveTextContent('Nothing')
   })
 })
@@ -144,7 +199,6 @@ describe('JobDetail on an interactive job', () => {
       job({ interactive: true, last_run: { ...live, interactive: true } }),
       { onWatch },
     )
-    expect(screen.getByText(/Watch opens it in Terminal/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Watch' }))
     expect(onWatch).toHaveBeenCalledOnce()
     rerender(

@@ -10,7 +10,7 @@ export function Switch({
   label: string
   checked: boolean
   onChange: (on: boolean) => void
-  children: ReactNode
+  children?: ReactNode
 }) {
   return (
     <label className="switch">
@@ -24,7 +24,7 @@ export function Switch({
       <span className="knob" />
       <span>
         <span className="switch-label">{label}</span>
-        <span className="switch-text">{children}</span>
+        {children && <span className="switch-text">{children}</span>}
       </span>
     </label>
   )

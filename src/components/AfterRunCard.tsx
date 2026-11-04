@@ -1,11 +1,14 @@
 import { useRef, useState } from 'react'
-import { destinationText } from '../actions'
+import { ANYONE, freeId } from '../actions'
+import { api, errorsOf } from '../api'
 import type { Action } from '../domain/Action'
+import type { ActionUse } from '../domain/ActionUse'
+import type { Recipient } from '../domain/Recipient'
 import { ActionIcon } from './ActionIcon'
 import { Icon } from './Icon'
 import { useDismiss } from './useDismiss'
 
-export type Picked = { onSuccess: string[]; onFailure: string[]; onComplete: string[] }
+export type Picked = { onSuccess: ActionUse[]; onFailure: ActionUse[]; onComplete: ActionUse[] }
 
 const ROWS: { key: keyof Picked; label: string; when: string }[] = [
   { key: 'onSuccess', label: 'On success', when: 'the run worked' },
@@ -13,61 +16,113 @@ const ROWS: { key: keyof Picked; label: string; when: string }[] = [
   { key: 'onComplete', label: 'On complete', when: 'it ended, however it went' },
 ]
 
-// What the job does when a run ends, picked from the actions that exist.
+// The value of the recipient menu's last option, which opens the form for a new one.
+const NEW = '\u0000new'
+
+type Shared = {
+  actions: Action[]
+  // An action given a recipient from the picker, saved: the list it picks from gets it.
+  onActionSaved: (saved: Action) => void
+}
+
+// What the job does when a run ends, picked from the actions that exist, each to one of its recipients.
 export function AfterRunCard({
   picked,
-  actions,
   onChange,
-}: {
+  ...shared
+}: Shared & {
   picked: Picked
-  actions: Action[]
-  onChange: (key: keyof Picked, ids: string[]) => void
+  onChange: (key: keyof Picked, uses: ActionUse[]) => void
 }) {
   return (
     <section className="card" aria-label="When it ends">
       <div className="lbl">When it ends</div>
       {ROWS.map((row) => (
-        <OutcomeRow
+        <ActionsRow
           key={row.key}
           label={row.label}
-          when={row.when}
-          ids={picked[row.key]}
-          actions={actions}
-          onChange={(ids) => onChange(row.key, ids)}
+          note={`when ${row.when}`}
+          where={row.label.toLowerCase()}
+          uses={picked[row.key]}
+          onChange={(uses) => onChange(row.key, uses)}
+          {...shared}
         />
       ))}
-      <p className="hint">
-        {actions.length
-          ? 'Make and test actions on the Actions page.'
-          : 'No action yet: make one, such as a Slack message, on the Actions page.'}
-      </p>
+      {shared.actions.length === 0 && <p className="muted small-text">No action yet</p>}
     </section>
   )
 }
 
-function OutcomeRow({
+// Who Claude may send to during a run, and with which action.
+export function DuringRunCard({
+  uses,
+  onChange,
+  ...shared
+}: Shared & {
+  uses: ActionUse[]
+  onChange: (uses: ActionUse[]) => void
+}) {
+  return (
+    <section className="card" aria-label="During the run">
+      <div className="lbl">During the run</div>
+      <ActionsRow
+        label="Claude can send"
+        note="when the prompt asks"
+        where="during the run"
+        uses={uses}
+        onChange={onChange}
+        anyone
+        {...shared}
+      />
+      {shared.actions.length === 0 && <p className="muted small-text">No action yet</p>}
+    </section>
+  )
+}
+
+// One list of a job's actions, each with its recipient, and a menu to add an action. `where` ends the labels of its
+// buttons: "on success".
+function ActionsRow({
   label,
-  when,
-  ids,
+  note,
+  where,
+  uses,
   actions,
   onChange,
-}: {
+  onActionSaved,
+  anyone = false,
+}: Shared & {
   label: string
-  when: string
-  ids: string[]
-  actions: Action[]
-  onChange: (ids: string[]) => void
+  note: string
+  where: string
+  uses: ActionUse[]
+  onChange: (uses: ActionUse[]) => void
+  // Whether a use can send to anyone, whose Slack ID Claude gives: during the run only.
+  anyone?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // The use whose recipient is being made, by its place in the list.
+  const [adding, setAdding] = useState<number | null>(null)
   const ref = useRef<HTMLFieldSetElement>(null)
   useDismiss(open, ref, setOpen)
-  const where = label.toLowerCase()
+
+  const update = (at: number, recipient: string) =>
+    onChange(uses.map((u, i) => (i === at ? { ...u, recipient } : u)))
+
+  function add(action: Action) {
+    // The action's one recipient it does not send to yet in this list, when there is only one left.
+    const free = action.recipients.filter(
+      (r) => !uses.some((u) => u.action === action.id && u.recipient === r.id),
+    )
+    const only = free.length === 1 ? free[0] : undefined
+    onChange([...uses, { action: action.id, recipient: only?.id ?? '' }])
+    setOpen(false)
+  }
 
   return (
     <fieldset className="outcome picker-anchor" aria-label={label} ref={ref}>
       <div className="card-head">
         <span className="outcome-title">
-          {label} <span className="muted normal">· when {when}</span>
+          {label} <span className="muted normal">· {note}</span>
         </span>
         <button
           type="button"
@@ -82,30 +137,74 @@ function OutcomeRow({
           Add action
         </button>
       </div>
-      {ids.length === 0 ? (
+      {uses.length === 0 ? (
         <p className="muted small-text">Nothing</p>
       ) : (
         <div className="stack-6">
-          {ids.map((id) => {
-            const action = actions.find((a) => a.id === id)
-            const name = action?.name ?? id
+          {uses.map((used, at) => {
+            const action = actions.find((a) => a.id === used.action)
+            const name = action?.name ?? used.action
+            const recipients = action?.recipients ?? []
+            const known =
+              recipients.some((r) => r.id === used.recipient) ||
+              (anyone && used.recipient === ANYONE)
             return (
-              <div key={id} className="condition-item">
-                {action && <ActionIcon action={action} size={16} />}
-                <span className="condition-text">
-                  <span className="condition-name">{name}</span>
-                  <span className="condition-sub">
-                    {action ? `Slack · ${destinationText(action)}` : 'No longer exists'}
+              // biome-ignore lint/suspicious/noArrayIndexKey: the same action can be in the list twice, to two recipients.
+              <div key={at} className="stack-6">
+                <div className="condition-item">
+                  {action && <ActionIcon action={action} size={16} />}
+                  <span className="condition-text">
+                    <span className="condition-name">{name}</span>
+                    {!action && <span className="condition-sub">No longer exists</span>}
                   </span>
-                </span>
-                <button
-                  type="button"
-                  className="square ghost"
-                  aria-label={`Remove ${name} ${where}`}
-                  onClick={() => onChange(ids.filter((i) => i !== id))}
-                >
-                  <Icon name="close" size={13} />
-                </button>
+                  <span className="muted" aria-hidden="true">
+                    →
+                  </span>
+                  <select
+                    className="recipient-select"
+                    aria-label={`Who ${name} sends to ${where}`}
+                    value={adding === at ? NEW : known ? used.recipient : ''}
+                    onChange={(e) => {
+                      if (e.target.value === NEW) {
+                        setAdding(at)
+                      } else {
+                        setAdding(null)
+                        update(at, e.target.value)
+                      }
+                    }}
+                  >
+                    <option value="">No recipient</option>
+                    {anyone && <option value={ANYONE}>Anyone</option>}
+                    {recipients.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                    {action && <option value={NEW}>New recipient…</option>}
+                  </select>
+                  <button
+                    type="button"
+                    className="square ghost"
+                    aria-label={`Remove ${name} ${where}`}
+                    onClick={() => {
+                      setAdding(null)
+                      onChange(uses.filter((_, i) => i !== at))
+                    }}
+                  >
+                    <Icon name="close" size={13} />
+                  </button>
+                </div>
+                {adding === at && action && (
+                  <NewRecipient
+                    action={action}
+                    onCancel={() => setAdding(null)}
+                    onAdded={(saved, added) => {
+                      onActionSaved(saved)
+                      update(at, added)
+                      setAdding(null)
+                    }}
+                  />
+                )}
               </div>
             )
           })}
@@ -114,35 +213,103 @@ function OutcomeRow({
       {open && (
         <div role="menu" aria-label={`Actions ${where}`} className="picker">
           <div className="lbl picker-title">Actions</div>
-          {actions.map((action) => {
-            const on = ids.includes(action.id)
-            return (
-              <button
-                type="button"
-                key={action.id}
-                role="menuitemcheckbox"
-                aria-checked={on}
-                className={`pick${on ? ' selected' : ''}`}
-                onClick={() => {
-                  onChange(on ? ids.filter((i) => i !== action.id) : [...ids, action.id])
-                  setOpen(false)
-                }}
-              >
-                <span className={on ? undefined : 'invisible'}>
-                  <Icon name="check" />
-                </span>
-                <ActionIcon action={action} size={16} />
-                <span className="condition-text">
-                  <span className="condition-name">{action.name}</span>
-                  <span className="condition-sub">
-                    {on ? 'Added' : `Slack · ${destinationText(action)}`}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
+          {actions.map((action) => (
+            <button
+              type="button"
+              key={action.id}
+              role="menuitem"
+              className="pick"
+              onClick={() => add(action)}
+            >
+              <ActionIcon action={action} size={16} />
+              <span className="condition-text">
+                <span className="condition-name">{action.name}</span>
+              </span>
+            </button>
+          ))}
         </div>
       )}
+    </fieldset>
+  )
+}
+
+// A recipient added to an action from a job's picker: a name and a Slack ID, saved in the action at once, so other
+// jobs can pick it too. `onAdded` gets the action saved, and the new recipient's id.
+export function NewRecipient({
+  action,
+  onCancel,
+  onAdded,
+}: {
+  action: Action
+  onCancel: () => void
+  onAdded: (saved: Action, added: string) => void
+}) {
+  const [name, setName] = useState('')
+  const [slackId, setSlackId] = useState('')
+  const [errors, setErrors] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      const recipient: Recipient = { id: freeId(name, action.recipients), name, slack_id: slackId }
+      const saved = await api.saveAction(
+        { ...action, recipients: [...action.recipients, recipient] },
+        action.id,
+      )
+      onAdded(saved, recipient.id)
+    } catch (e) {
+      setErrors(errorsOf(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Not a form: it sits inside the job's own.
+  return (
+    <fieldset className="new-recipient" aria-label={`New recipient of ${action.name}`}>
+      <div className="grid-2 tight">
+        <label className="field">
+          Name
+          <input
+            value={name}
+            placeholder="Ops channel"
+            // biome-ignore lint/a11y/noAutofocus: it opens because the user asked for it.
+            autoFocus
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          Slack ID
+          <input
+            className="mono"
+            value={slackId}
+            placeholder="U012AB3CD or C012AB3CD"
+            spellCheck={false}
+            onChange={(e) => setSlackId(e.target.value)}
+          />
+        </label>
+      </div>
+      {errors.length > 0 && (
+        <ul className="errors" role="alert">
+          {errors.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
+        </ul>
+      )}
+      <div className="actions">
+        <button type="button" className="small" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="small primary"
+          disabled={saving || !name.trim() || !slackId.trim()}
+          onClick={save}
+        >
+          {saving ? 'Adding…' : 'Add recipient'}
+        </button>
+      </div>
     </fieldset>
   )
 }

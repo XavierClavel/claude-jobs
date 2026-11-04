@@ -1,7 +1,12 @@
-//! What a job does once a run ends: the actions it names in `on_success`, for a run that went well, `on_failure`, for
-//! one that failed or timed out, and `on_complete`, for either. An action is defined once, in `~/.claude-jobs/actions.json`, and any job can use
-//! it. The one kind so far starts a Slack workflow, one that begins "From a webhook" in Workflow Builder, with the
-//! run's result and the user or channel to send it to as its variables.
+//! What a job does with Slack: the actions it names in `on_success`, for a run that went well, `on_failure`, for one
+//! that failed or timed out, `on_complete`, for either, and `during_run`, for the messages Claude sends itself (see
+//! `mcp`). An action is defined once, in `~/.claude-jobs/actions.json`, and any job can use it. The one kind so far
+//! starts a Slack workflow, one that begins "From a webhook" in Workflow Builder, with the run's result and the user
+//! or channel to send it to as its variables.
+//!
+//! An action has a list of recipients, users or channels, and each use of it in a job can pick one of them (see
+//! `ActionUse`): the same workflow can so message several people. A use with none sends no recipient, for a workflow
+//! that sends where it was built to.
 //!
 //! Such a workflow reads flat JSON whose keys are the variables it declares, and fails when one of them is missing:
 //! every message sends the same keys, see `Message::payload`.
@@ -9,7 +14,8 @@
 use crate::jobs::{self, Job};
 use crate::paths;
 use crate::runs::{RunRecord, RunStatus, Trigger};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -20,7 +26,7 @@ use ts_rs::TS;
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(15);
 /// What a message keeps of Claude's result: Slack folds a long one anyway, and the whole of it is in the app.
-const MESSAGE_LIMIT: usize = 3000;
+pub const MESSAGE_LIMIT: usize = 3000;
 const WEBHOOK_PREFIXES: [&str; 2] = ["https://hooks.slack.com/", "https://hooks.slack-gov.com/"];
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
@@ -29,22 +35,42 @@ pub struct Action {
     pub id: String,
     pub name: String,
     pub target: Target,
+    /// Who it can send to: each job that uses it picks one.
+    #[serde(default)]
+    pub recipients: Vec<Recipient>,
 }
 
-/// Where an action sends the run's result.
+impl Action {
+    pub fn recipient(&self, id: &str) -> Option<&Recipient> {
+        self.recipients.iter().find(|r| r.id == id)
+    }
+}
+
+/// What an action sends with.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum Target {
     /// A Slack workflow started by its webhook, which sends the message to the user or channel it is given.
-    Slack {
-        webhook_url: String,
-        /// Whether `recipient` is a user or a channel. The workflow gets it in the variable of that name, `user` or
-        /// `channel`.
-        to: SlackTo,
-        /// The user's or the channel's Slack ID, such as `U012AB3CD` or `C012AB3CD`.
-        recipient: String,
-    },
+    Slack { webhook_url: String },
+}
+
+/// Who an action's message goes to: a Slack user or channel, one of the action's, picked wherever a job uses it. Its
+/// id is the action's own: two actions can each have a recipient `ops`.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[ts(export)]
+pub struct Recipient {
+    pub id: String,
+    pub name: String,
+    /// The user's or the channel's Slack ID, such as `U012AB3CD` or `C012AB3CD`. Which it is names the workflow's
+    /// variable it comes in: `user` or `channel`.
+    pub slack_id: String,
+}
+
+impl Recipient {
+    pub fn to(&self) -> Option<SlackTo> {
+        slack_kind(&self.slack_id)
+    }
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq)]
@@ -66,6 +92,46 @@ impl SlackTo {
     }
 }
 
+/// The recipient of a use whose recipient Claude gives, by its Slack ID: only during a run, with `send_message`.
+pub const ANYONE: &str = "*";
+
+/// An action a job uses, and which of its recipients it sends to: empty for none, `ANYONE` for whoever Claude names
+/// during the run.
+#[derive(Serialize, TS, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[ts(export)]
+pub struct ActionUse {
+    pub action: String,
+    pub recipient: String,
+}
+
+impl ActionUse {
+    /// The recipient it sends to, if it names one.
+    pub fn recipient_of<'a>(&self, action: &'a Action) -> Option<&'a Recipient> {
+        action.recipient(&self.recipient)
+    }
+}
+
+impl<'de> Deserialize<'de> for ActionUse {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Stored {
+            Use {
+                action: String,
+                #[serde(default)]
+                recipient: String,
+            },
+            /// An action's id alone, from before recipients: the action had one user or channel, which became its
+            /// recipient of the same id (see `load`).
+            Id(String),
+        }
+        Ok(match Stored::deserialize(deserializer)? {
+            Stored::Use { action, recipient } => ActionUse { action, recipient },
+            Stored::Id(id) => ActionUse { action: id.clone(), recipient: id },
+        })
+    }
+}
+
 /// What an action did once a run ended, kept in the run's record.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
@@ -73,17 +139,53 @@ pub struct ActionResult {
     pub action: String,
     /// Its name then: it may have been renamed or deleted since.
     pub name: String,
+    /// Who it sent to; empty in a record from before recipients.
+    #[serde(default)]
+    pub recipient: String,
+    /// The recipient's name then.
+    #[serde(default)]
+    pub recipient_name: String,
     /// Why it did not work; none when it did.
     pub error: Option<String>,
 }
 
-pub fn load() -> Result<Vec<Action>, String> {
-    match fs::read_to_string(paths::actions_file()) {
-        // As for jobs.json: a file that does not parse is never "no actions", or saving would lose them.
-        Ok(text) => serde_json::from_str(&text).map_err(|e| format!("actions.json does not parse: {e}")),
+/// A JSON file of a list: none yet is an empty list, one that does not parse an error, never an empty list, or saving
+/// would lose what it holds.
+fn read_list<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Vec<T>, String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    match fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|e| format!("{name} does not parse: {e}")),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
-        Err(e) => Err(format!("cannot read actions.json: {e}")),
+        Err(e) => Err(format!("cannot read {name}: {e}")),
     }
+}
+
+/// The actions of `actions.json`. One from before recipients named a single user or channel: it becomes the action's
+/// one recipient, with the action's id, which the jobs that used the action send to (see `ActionUse`).
+pub fn load() -> Result<Vec<Action>, String> {
+    let stored: Vec<Value> = read_list(&paths::actions_file())?;
+    stored
+        .into_iter()
+        .map(from_stored)
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("actions.json does not parse: {e}"))
+}
+
+fn from_stored(mut stored: Value) -> Result<Action, serde_json::Error> {
+    let older = || -> Option<Value> {
+        let target = stored.get("target")?;
+        Some(serde_json::json!([{
+            "id": stored.get("id")?,
+            "name": stored.get("name")?,
+            "slack_id": target.get("recipient")?,
+        }]))
+    };
+    if stored.get("recipients").is_none() {
+        if let Some(recipients) = older() {
+            stored["recipients"] = recipients;
+        }
+    }
+    serde_json::from_value(stored)
 }
 
 pub fn save(actions: &[Action]) -> Result<(), String> {
@@ -107,11 +209,14 @@ fn write_private(path: &Path, text: &str) -> Result<(), String> {
 pub fn validate(input: Action, existing: &[Action], editing: Option<&str>) -> Result<Action, Vec<String>> {
     let mut errors = Vec::new();
     let target = match input.target {
-        Target::Slack { webhook_url, to, recipient } => {
-            Target::Slack { webhook_url: webhook_url.trim().to_string(), to, recipient: recipient.trim().to_string() }
-        }
+        Target::Slack { webhook_url } => Target::Slack { webhook_url: webhook_url.trim().to_string() },
     };
-    let action = Action { id: input.id.trim().to_string(), name: input.name.trim().to_string(), target };
+    let action = Action {
+        id: input.id.trim().to_string(),
+        name: input.name.trim().to_string(),
+        target,
+        recipients: input.recipients.into_iter().map(tidy).collect(),
+    };
     if !jobs::valid_id(&action.id) {
         errors.push("Id: lowercase letters, digits and dashes, 40 characters at most.".to_string());
     }
@@ -126,7 +231,7 @@ pub fn validate(input: Action, existing: &[Action], editing: Option<&str>) -> Re
         errors.push("Name is required.".to_string());
     }
     match &action.target {
-        Target::Slack { webhook_url, to, recipient } => {
+        Target::Slack { webhook_url } => {
             let valid_url = WEBHOOK_PREFIXES.iter().any(|prefix| {
                 webhook_url
                     .strip_prefix(prefix)
@@ -139,17 +244,16 @@ pub fn validate(input: Action, existing: &[Action], editing: Option<&str>) -> Re
                         .to_string(),
                 );
             }
-            if !valid_slack_id(recipient, *to) {
-                errors.push(match to {
-                    SlackTo::User => "A user ID looks like U012AB3CD, not a name: in Slack, open the user's \
-                                      profile, click ⋮, then Copy member ID."
-                        .to_string(),
-                    SlackTo::Channel => "A channel ID looks like C012AB3CD, not a name: in Slack, open the \
-                                         channel's details; it is at the bottom of About."
-                        .to_string(),
-                });
-            }
         }
+    }
+    for (at, recipient) in action.recipients.iter().enumerate() {
+        let who = if recipient.name.is_empty() { format!("Recipient {}", at + 1) } else { recipient.name.clone() };
+        if !jobs::valid_id(&recipient.id) {
+            errors.push(format!("{who}: its id is lowercase letters, digits and dashes, 40 characters at most."));
+        } else if action.recipients[..at].iter().any(|r| r.id == recipient.id) {
+            errors.push(format!("{who}: another recipient has the id {}.", recipient.id));
+        }
+        errors.extend(check_recipient(recipient).into_iter().map(|e| format!("{who}: {e}")));
     }
     if errors.is_empty() {
         Ok(action)
@@ -158,89 +262,157 @@ pub fn validate(input: Action, existing: &[Action], editing: Option<&str>) -> Re
     }
 }
 
-/// A Slack ID as Slack writes it: `U012AB3CD` for a user (`W…` in Enterprise Grid), `C012AB3CD` for a channel (`G…`
-/// for an older private one).
-fn valid_slack_id(id: &str, to: SlackTo) -> bool {
-    let first = match to {
-        SlackTo::User => ['U', 'W'],
-        SlackTo::Channel => ['C', 'G'],
-    };
-    id.starts_with(first)
-        && (9..=15).contains(&id.len())
-        && id.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+fn tidy(recipient: Recipient) -> Recipient {
+    Recipient {
+        id: recipient.id.trim().to_string(),
+        name: recipient.name.trim().to_string(),
+        slack_id: recipient.slack_id.trim().to_string(),
+    }
 }
 
-pub fn is_known(id: &str, actions: &[Action]) -> bool {
-    actions.iter().any(|a| a.id == id)
+/// What is wrong with a recipient's name and Slack ID.
+pub fn check_recipient(recipient: &Recipient) -> Vec<String> {
+    let mut errors = Vec::new();
+    if recipient.name.trim().is_empty() {
+        errors.push("a name is required.".to_string());
+    }
+    if recipient.to().is_none() {
+        errors.push(
+            "a Slack ID looks like U012AB3CD for a user, C012AB3CD for a channel, not a name: in Slack, open the \
+             user's profile, click ⋮, then Copy member ID, or open the channel's details: it is at the bottom of About."
+                .to_string(),
+        );
+    }
+    errors
+}
+
+/// What a Slack ID is, as Slack writes it: `U012AB3CD` for a user (`W…` in Enterprise Grid), `C012AB3CD` for a
+/// channel (`G…` for an older private one). None for anything else, such as a name.
+fn slack_kind(id: &str) -> Option<SlackTo> {
+    if !(9..=15).contains(&id.len()) || !id.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+        return None;
+    }
+    match id.chars().next()? {
+        'U' | 'W' => Some(SlackTo::User),
+        'C' | 'G' => Some(SlackTo::Channel),
+        _ => None,
+    }
+}
+
+/// What in `uses` names an action that does not exist, or a recipient the action does not have.
+pub fn unknown_in<'a>(uses: impl IntoIterator<Item = &'a ActionUse>, actions: &[Action]) -> Vec<String> {
+    let mut errors: Vec<String> = Vec::new();
+    for used in uses {
+        let error = match actions.iter().find(|a| a.id == used.action) {
+            None => format!("No action called {}.", used.action),
+            Some(action)
+                if !used.recipient.is_empty()
+                    && used.recipient != ANYONE
+                    && action.recipient(&used.recipient).is_none() =>
+            {
+                format!("{} has no recipient called {}.", action.name, used.recipient)
+            }
+            Some(_) => continue,
+        };
+        if !errors.contains(&error) {
+            errors.push(error);
+        }
+    }
+    errors
 }
 
 /// The actions `job` takes for a run that ended as `status`: those for its outcome, then those for any outcome, each
 /// once. None for a run still going or cut short, which has no runner left to take them.
-pub fn for_outcome(job: &Job, status: RunStatus) -> Vec<String> {
+pub fn for_outcome(job: &Job, status: RunStatus) -> Vec<ActionUse> {
     let outcome = match status {
         RunStatus::Ok => &job.on_success,
         RunStatus::Failed | RunStatus::Timeout => &job.on_failure,
         RunStatus::Running | RunStatus::Interrupted => return vec![],
     };
-    let mut ids: Vec<String> = Vec::new();
-    for id in outcome.iter().chain(&job.on_complete) {
-        if !ids.contains(id) {
-            ids.push(id.clone());
+    let mut uses: Vec<ActionUse> = Vec::new();
+    for used in outcome.iter().chain(&job.on_complete) {
+        if !uses.contains(used) {
+            uses.push(used.clone());
         }
     }
-    ids
+    uses
 }
 
 /// Takes the actions `job` names for how `rec` ended, and says what each did. One deleted since is left out.
 pub fn after_run(job: &Job, rec: &RunRecord) -> Vec<ActionResult> {
-    let ids = for_outcome(job, rec.status);
-    if ids.is_empty() {
+    let uses = for_outcome(job, rec.status);
+    if uses.is_empty() {
         return vec![];
     }
     let all = match load() {
         Ok(all) => all,
         Err(e) => {
-            return ids
+            return uses
                 .iter()
-                .map(|id| ActionResult { action: id.clone(), name: id.clone(), error: Some(e.clone()) })
+                .map(|u| ActionResult {
+                    action: u.action.clone(),
+                    name: u.action.clone(),
+                    recipient: u.recipient.clone(),
+                    recipient_name: u.recipient.clone(),
+                    error: Some(e.clone()),
+                })
                 .collect()
         }
     };
     let message = Message::for_run(job, rec);
-    ids.iter()
-        .filter_map(|id| all.iter().find(|a| &a.id == id))
-        .map(|action| ActionResult {
-            action: action.id.clone(),
-            name: action.name.clone(),
-            error: perform(action, &message).err(),
+    uses.iter()
+        .filter_map(|u| Some((u, all.iter().find(|a| a.id == u.action)?)))
+        .map(|(u, action)| {
+            let recipient = u.recipient_of(action);
+            ActionResult {
+                action: action.id.clone(),
+                name: action.name.clone(),
+                recipient: u.recipient.clone(),
+                recipient_name: recipient.map_or_else(|| u.recipient.clone(), |r| r.name.clone()),
+                error: match recipient {
+                    None if !u.recipient.is_empty() => {
+                        Some(format!("{} has no recipient called {}: it was deleted.", action.name, u.recipient))
+                    }
+                    recipient => send(action, recipient, &message).err(),
+                },
+            }
         })
         .collect()
 }
 
 /// Sends a message saying what the action is for, with every variable a run sends, so the workflow can be tried
 /// before a run needs it.
-pub fn test(action: &Action) -> Result<(), String> {
+pub fn test(action: &Action, recipient: Option<&Recipient>) -> Result<(), String> {
     let message = Message {
         job: "Claude Jobs test".to_string(),
         status: "Test".to_string(),
         summary: format!("👋 Test from Claude Jobs: {}", action.name),
         result: "When a job that uses this action ends, how the run went and Claude's result come here.".to_string(),
     };
-    perform(action, &message)
+    send(action, recipient, &message)
 }
 
-fn perform(action: &Action, message: &Message) -> Result<(), String> {
+/// Sends `message` with `action`, to `recipient` if there is one: what a run's actions do when it ends, and what
+/// Claude's `send_message` does.
+pub fn send(action: &Action, recipient: Option<&Recipient>, message: &Message) -> Result<(), String> {
+    let to = match recipient {
+        Some(recipient) => match recipient.to() {
+            Some(kind) => Some((kind, recipient.slack_id.as_str())),
+            None => return Err(format!("{} has no Slack ID: give it one in the action.", recipient.name)),
+        },
+        None => None,
+    };
     match &action.target {
-        Target::Slack { webhook_url, .. } => post(webhook_url, message.payload(&action.target).to_string()),
+        Target::Slack { webhook_url } => post(webhook_url, message.payload(to).to_string()),
     }
 }
 
 /// A run's message, each part a variable of the workflow.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Message {
     /// The job's name.
     pub job: String,
-    /// `OK`, `Failed` or `Timed out`, as the window says it.
+    /// `OK`, `Failed` or `Timed out`, as the window says it; `Running` for a message Claude sends during the run.
     pub status: String,
     /// How the run went, in a line: its job, its duration, its cost.
     pub summary: String,
@@ -283,6 +455,18 @@ impl Message {
         Message { job: job.name.clone(), status: status.to_string(), summary, result }
     }
 
+    /// A message Claude sends during a run, with its `send_message` tool: its Markdown as the result, under its own
+    /// summary line if it gave one, else under the job's name.
+    pub fn from_claude(job: &Job, summary: Option<&str>, text: &str) -> Message {
+        let headline = summary.map(str::trim).filter(|s| !s.is_empty()).map_or_else(|| job.name.clone(), slack_text);
+        Message {
+            job: job.name.clone(),
+            status: "Running".to_string(),
+            summary: format!("💬 {headline}"),
+            result: slack_text(text),
+        }
+    }
+
     /// The whole message: `summary`, then `result` under it.
     pub fn text(&self) -> String {
         if self.result.is_empty() {
@@ -292,9 +476,10 @@ impl Message {
         }
     }
 
-    /// The webhook's body: every variable as text, and the recipient's ID as `user` or `channel`. A workflow uses the
-    /// ones it declares; it fails on one it declares and does not get, so they are always all there.
-    pub fn payload(&self, target: &Target) -> serde_json::Value {
+    /// The webhook's body: every variable as text, and the recipient's ID, if there is one, as `user` or `channel`. A
+    /// workflow uses the ones it declares; it fails on one it declares and does not get, so the text ones are always
+    /// all there.
+    pub fn payload(&self, to: Option<(SlackTo, &str)>) -> serde_json::Value {
         let mut body = serde_json::json!({
             "text": self.text(),
             "job": self.job,
@@ -302,8 +487,8 @@ impl Message {
             "summary": self.summary,
             "result": self.result,
         });
-        match target {
-            Target::Slack { to, recipient, .. } => body[to.key()] = recipient.clone().into(),
+        if let Some((kind, slack_id)) = to {
+            body[kind.key()] = slack_id.into();
         }
         body
     }
@@ -365,8 +550,8 @@ fn refusal(status: u16, answer: &str) -> String {
         (_, "channel_not_found" | "channel_is_archived") => ": its channel was archived or deleted",
         (_, "action_prohibited" | "posting_to_general_channel_denied") => ": the workspace does not let it post there",
         (400, _) => {
-            ": check that the workflow is published, and that it declares only variables Claude Jobs sends (see the \
-             action's editor)"
+            ": check that the workflow is published, that it declares only variables Claude Jobs sends (see the \
+             action's editor), and that the recipient is the kind it sends to, a user or a channel"
         }
         (404, _) => ": the workflow was deleted, or its webhook changed. Paste its current one in the action",
         _ => "",
@@ -494,12 +679,21 @@ mod tests {
     use std::io::Read;
     use std::net::TcpListener;
 
-    fn slack(id: &str, url: &str, to: SlackTo, recipient: &str) -> Action {
+    fn slack(id: &str, url: &str) -> Action {
         Action {
             id: id.into(),
             name: format!("{id} on Slack"),
-            target: Target::Slack { webhook_url: url.into(), to, recipient: recipient.into() },
+            target: Target::Slack { webhook_url: url.into() },
+            recipients: vec![],
         }
+    }
+
+    fn to(id: &str, slack_id: &str) -> Recipient {
+        Recipient { id: id.into(), name: format!("{id} on Slack"), slack_id: slack_id.into() }
+    }
+
+    fn used(action: &str, recipient: &str) -> ActionUse {
+        ActionUse { action: action.into(), recipient: recipient.into() }
     }
 
     const HOOK: &str = "https://hooks.slack.com/triggers/T0123ABCD/9876543210/abcdef0123456789";
@@ -507,7 +701,9 @@ mod tests {
     fn job() -> Job {
         serde_json::from_value(serde_json::json!({
             "id": "j", "name": "Photobook monitor", "prompt": "/j", "hour": 9, "minute": 0,
-            "on_success": ["me"], "on_failure": ["ops", "me"], "on_complete": ["me", "log"]
+            "on_success": [{"action": "slack", "recipient": "me"}],
+            "on_failure": [{"action": "slack", "recipient": "ops"}, {"action": "slack", "recipient": "me"}],
+            "on_complete": [{"action": "slack", "recipient": "me"}, {"action": "log", "recipient": "me"}]
         }))
         .expect("parses")
     }
@@ -522,14 +718,10 @@ mod tests {
 
     #[test]
     fn validate_tidies_an_action_and_says_what_is_wrong() {
-        let input =
-            Action { name: " Ops ".into(), ..slack(" ops ", &format!(" {HOOK}\n"), SlackTo::Channel, " C012AB3CD ") };
+        let input = Action { name: " Ops ".into(), ..slack(" ops ", &format!(" {HOOK}\n")) };
         let valid = validate(input.clone(), &[], None).expect("valid");
         assert_eq!((valid.id.as_str(), valid.name.as_str()), ("ops", "Ops"));
-        assert_eq!(
-            valid.target,
-            Target::Slack { webhook_url: HOOK.into(), to: SlackTo::Channel, recipient: "C012AB3CD".into() }
-        );
+        assert_eq!(valid.target, Target::Slack { webhook_url: HOOK.into() });
         let errors = |a: Action, existing: &[Action], editing: Option<&str>| {
             validate(a, existing, editing).expect_err("invalid")
         };
@@ -540,33 +732,39 @@ mod tests {
         );
         assert!(validate(input, &[valid], Some("ops")).is_ok());
         for url in ["http://hooks.slack.com/triggers/x", "https://example.com/hook", "https://hooks.slack.com/"] {
-            assert_eq!(errors(slack("a", url, SlackTo::User, "U012AB3CD"), &[], None).len(), 1, "{url}");
+            assert_eq!(errors(slack("a", url), &[], None).len(), 1, "{url}");
         }
-        let blank = Action { name: " ".into(), ..slack("Bad Id", HOOK, SlackTo::User, "") };
+        let blank = Action { name: " ".into(), ..slack("Bad Id", "") };
         assert_eq!(errors(blank, &[], None).len(), 3);
     }
 
     #[test]
-    fn the_recipient_is_a_slack_id_of_its_kind() {
-        let ok = |to, id: &str| validate(slack("a", HOOK, to, id), &[], None).is_ok();
-        assert!(ok(SlackTo::User, "U012AB3CD") && ok(SlackTo::User, "W0123456789"));
-        assert!(ok(SlackTo::Channel, "C012AB3CD") && ok(SlackTo::Channel, "G012AB3CD"));
-        assert!(!ok(SlackTo::User, "C012AB3CD"), "a channel's ID is not a user's");
-        assert!(!ok(SlackTo::Channel, "U012AB3CD"), "a user's ID is not a channel's");
-        for name in ["@xavier", "#claude-jobs", "xavier", "u012ab3cd", "U012", "U012AB3CD 1"] {
-            assert!(!ok(SlackTo::User, name), "{name}");
+    fn an_actions_recipients_are_users_or_channels_by_their_slack_id() {
+        let with = |recipients: Vec<Recipient>| validate(Action { recipients, ..slack("a", HOOK) }, &[], None);
+        let kind = |id: &str| with(vec![to("a", id)]).map(|a| a.recipients[0].to());
+        assert_eq!(kind(" U012AB3CD "), Ok(Some(SlackTo::User)));
+        assert_eq!(kind("W0123456789"), Ok(Some(SlackTo::User)));
+        assert_eq!(kind("C012AB3CD"), Ok(Some(SlackTo::Channel)));
+        assert_eq!(kind("G012AB3CD"), Ok(Some(SlackTo::Channel)));
+        for name in ["@xavier", "#claude-jobs", "xavier", "u012ab3cd", "U012", "U012AB3CD 1", "T012AB3CD"] {
+            assert!(kind(name).is_err(), "{name}");
         }
-        let errors = validate(slack("a", HOOK, SlackTo::User, "@xavier"), &[], None).expect_err("invalid");
-        assert!(errors[0].contains("Copy member ID"), "{errors:?}");
+        let errors = with(vec![to("me", "@xavier")]).expect_err("invalid");
+        assert!(errors[0].starts_with("me on Slack: a Slack ID looks like") && errors[0].contains("Copy member ID"));
+        let twice = with(vec![to("me", "U012AB3CD"), to("me", "C012AB3CD")]).expect_err("invalid");
+        assert_eq!(twice, ["me on Slack: another recipient has the id me."]);
+        let blank = Recipient { name: " ".into(), ..to("Bad", "U012AB3CD") };
+        assert_eq!(with(vec![blank]).expect_err("invalid").len(), 2);
     }
 
     #[test]
     fn actions_keep_their_json_shape() {
-        let value = serde_json::to_value(slack("ops", HOOK, SlackTo::Channel, "C012AB3CD")).expect("serializes");
+        let value = serde_json::to_value(Action { recipients: vec![to("ops", "C012AB3CD")], ..slack("ops", HOOK) })
+            .expect("serializes");
         assert_eq!(
             value,
-            serde_json::json!({"id": "ops", "name": "ops on Slack", "target":
-                {"kind": "slack", "webhook_url": HOOK, "to": "channel", "recipient": "C012AB3CD"}})
+            serde_json::json!({"id": "ops", "name": "ops on Slack", "target": {"kind": "slack", "webhook_url": HOOK},
+                "recipients": [{"id": "ops", "name": "ops on Slack", "slack_id": "C012AB3CD"}]})
         );
         // The variable the workflow gets the recipient in is the value's own JSON.
         for to in [SlackTo::Channel, SlackTo::User] {
@@ -575,12 +773,48 @@ mod tests {
     }
 
     #[test]
+    fn an_action_from_before_recipients_has_its_one_as_its_recipient() {
+        let old = serde_json::json!({"id": "me", "name": "Private message",
+            "target": {"kind": "slack", "webhook_url": HOOK, "to": "user", "recipient": "U012AB3CD"}});
+        let action = from_stored(old).expect("parses");
+        let me = Recipient { name: "Private message".into(), ..to("me", "U012AB3CD") };
+        assert_eq!(action, Action { name: "Private message".into(), recipients: vec![me], ..slack("me", HOOK) });
+        // Saved, it has the new shape, and reads the same.
+        let saved = serde_json::to_value(&action).expect("serializes");
+        assert_eq!(saved["target"], serde_json::json!({"kind": "slack", "webhook_url": HOOK}));
+        assert_eq!(from_stored(saved).expect("parses"), action);
+        // A job named the action alone: it now names that recipient too.
+        let uses: Vec<ActionUse> =
+            serde_json::from_value(serde_json::json!(["me", {"action": "a", "recipient": "b"}, {"action": "c"}]))
+                .expect("parses");
+        assert_eq!(uses, [used("me", "me"), used("a", "b"), used("c", "")]);
+        assert_eq!(
+            serde_json::to_value(&uses[0]).expect("serializes"),
+            serde_json::json!({"action": "me", "recipient": "me"})
+        );
+    }
+
+    #[test]
+    fn what_a_job_uses_must_exist() {
+        let actions = [Action { recipients: vec![to("me", "U012AB3CD")], ..slack("slack", HOOK) }];
+        assert!(unknown_in(&[used("slack", "me")], &actions).is_empty());
+        assert_eq!(
+            unknown_in(
+                &[used("gone", "me"), used("slack", "x"), used("slack", ""), used("slack", ANYONE), used("gone", "me")],
+                &actions
+            ),
+            ["No action called gone.", "slack on Slack has no recipient called x."]
+        );
+    }
+
+    #[test]
     fn a_job_takes_its_success_actions_or_its_failure_actions() {
         let job = job();
         // Those on complete come on top, and one in both lists is taken once.
-        assert_eq!(for_outcome(&job, RunStatus::Ok), ["me", "log"]);
-        assert_eq!(for_outcome(&job, RunStatus::Failed), ["ops", "me", "log"]);
-        assert_eq!(for_outcome(&job, RunStatus::Timeout), ["ops", "me", "log"]);
+        assert_eq!(for_outcome(&job, RunStatus::Ok), [used("slack", "me"), used("log", "me")]);
+        let failed = [used("slack", "ops"), used("slack", "me"), used("log", "me")];
+        assert_eq!(for_outcome(&job, RunStatus::Failed), failed);
+        assert_eq!(for_outcome(&job, RunStatus::Timeout), failed);
         assert!(for_outcome(&job, RunStatus::Interrupted).is_empty());
         assert!(for_outcome(&job, RunStatus::Running).is_empty());
     }
@@ -588,7 +822,7 @@ mod tests {
     #[test]
     fn the_workflow_gets_every_variable_and_the_recipient() {
         let message = Message::for_run(&job(), &ended("ok", Some("## Done\n**12** orders <checked>."), None));
-        let user = message.payload(&slack("me", HOOK, SlackTo::User, "U012AB3CD").target);
+        let user = message.payload(Some((SlackTo::User, "U012AB3CD")));
         assert_eq!(
             user,
             serde_json::json!({
@@ -600,8 +834,12 @@ mod tests {
                 "user": "U012AB3CD",
             })
         );
-        let channel = message.payload(&slack("ops", HOOK, SlackTo::Channel, "C012AB3CD").target);
+        let channel = message.payload(Some((SlackTo::Channel, "C012AB3CD")));
         assert_eq!((channel["channel"].as_str(), channel.get("user")), (Some("C012AB3CD"), None));
+        // With no recipient, the workflow sends where it was built to.
+        let nobody = message.payload(None);
+        assert_eq!((nobody.get("user"), nobody.get("channel")), (None, None));
+        assert_eq!(nobody["summary"], user["summary"]);
     }
 
     #[test]
@@ -632,6 +870,31 @@ mod tests {
             Message::for_run(&job(), &for_pr).summary,
             "✅ Photobook monitor finished · 2 min 3 s · $0.55 · for o/a#21"
         );
+    }
+
+    #[test]
+    fn a_message_claude_sends_is_its_markdown_under_the_jobs_name() {
+        let message = Message::from_claude(&job(), None, "## Orders\n- **12** checked");
+        let body = message.payload(Some((SlackTo::User, "U012AB3CD")));
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "text": "💬 Photobook monitor\n*Orders*\n• *12* checked",
+                "job": "Photobook monitor",
+                "status": "Running",
+                "summary": "💬 Photobook monitor",
+                "result": "*Orders*\n• *12* checked",
+                "user": "U012AB3CD",
+            })
+        );
+    }
+
+    #[test]
+    fn a_message_claude_sends_can_have_its_own_summary() {
+        let message = Message::from_claude(&job(), Some(" **3** orders failed "), "- order 12");
+        assert_eq!(message.summary, "💬 *3* orders failed");
+        assert_eq!(message.result, "• order 12");
+        assert_eq!(Message::from_claude(&job(), Some(" "), "hi").summary, "💬 Photobook monitor");
     }
 
     #[test]
@@ -706,8 +969,7 @@ mod tests {
     #[test]
     fn a_message_is_posted_as_json() {
         let (url, server) = serve_once("200 OK", r#"{"ok":true}"#);
-        let action = slack("me", &url, SlackTo::User, "U012AB3CD");
-        assert_eq!(test(&action), Ok(()));
+        assert_eq!(test(&slack("me", &url), Some(&to("me", "U012AB3CD"))), Ok(()));
         let request = server.join().expect("served");
         assert!(request.starts_with("POST /triggers/T/1/secret "), "{request}");
         assert!(request.to_ascii_lowercase().contains("content-type: application/json"), "{request}");

@@ -162,13 +162,13 @@ describe('pull request jobs', () => {
     expect(scheduleText({ ...job, event: { ...event, mine: false, repos: ['o/a'] } })).toBe(
       'Each pull request opened in o/a',
     )
-    expect(scheduleShort(job)).toBe('Your PRs opened in claude-jobs, api')
+    expect(scheduleShort(job)).toBe('On PR opened')
     const merged = { ...event, kind: 'pull_request_merged' as const, repos: ['o/a'] }
     expect(scheduleText({ ...job, event: merged })).toBe('Each of your pull requests merged in o/a')
     expect(scheduleText({ ...job, event: { ...merged, mine: false } })).toBe(
       'Each pull request merged in o/a',
     )
-    expect(scheduleShort({ ...job, event: { ...merged, mine: false } })).toBe('PRs merged in a')
+    expect(scheduleShort({ ...job, event: { ...merged, mine: false } })).toBe('On PR merged')
   })
 
   it('name the pull request a run was for', () => {

@@ -1,6 +1,6 @@
 //! Each enabled job on a schedule is a launchd agent, `com.claude-jobs.<id>`, that calls this app's binary with
 //! `run <id>`. One more agent, `com.claude-jobs.app.catch-up`, calls `catch-up` at login while such a job is enabled,
-//! and `com.claude-jobs.app.events` calls `poll` every minute while a job an event starts is.
+//! and `com.claude-jobs.app.events` calls `poll` every 5 minutes while a job an event starts is.
 
 use crate::jobs::Job;
 use crate::paths;
@@ -15,7 +15,7 @@ const LABEL_PREFIX: &str = "com.claude-jobs.";
 const CATCH_UP: &str = "app.catch-up";
 const EVENTS: &str = "app.events";
 /// How often the events agent checks, in seconds.
-const EVENTS_INTERVAL: u32 = 60;
+const EVENTS_INTERVAL: u32 = 300;
 
 pub fn label(job_id: &str) -> String {
     format!("{LABEL_PREFIX}{job_id}")
@@ -215,7 +215,10 @@ fn apply_events(jobs: &[Job], exe: &Path) -> Result<(), String> {
         remove(EVENTS);
         return Ok(());
     }
-    if program_of(EVENTS).as_deref() == Some(&*exe.display().to_string()) && is_loaded(EVENTS) {
+    if program_of(EVENTS).as_deref() == Some(&*exe.display().to_string())
+        && interval_of(EVENTS) == Some(EVENTS_INTERVAL)
+        && is_loaded(EVENTS)
+    {
         return Ok(());
     }
     load(EVENTS, &events_agent(exe)?)
@@ -252,6 +255,12 @@ pub fn program_of(job_id: &str) -> Option<String> {
     args.first()?.as_string().map(str::to_string)
 }
 
+/// How often, in seconds, an agent's launchd file starts it, for one started at an interval.
+fn interval_of(id: &str) -> Option<u32> {
+    let value = plist::Value::from_file(plist_path(id)).ok()?;
+    value.as_dictionary()?.get("StartInterval")?.as_unsigned_integer().and_then(|n| u32::try_from(n).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +285,7 @@ mod tests {
             interactive: false,
             chrome: false,
             conditions: vec![],
+            during_run: vec![],
             on_success: vec![],
             on_failure: vec![],
             on_complete: vec![],
@@ -312,7 +322,7 @@ mod tests {
         let mut xml = Vec::new();
         plist::to_writer_xml(&mut xml, &agent).expect("serializes");
         let xml = String::from_utf8(xml).expect("UTF-8");
-        assert!(xml.contains("<key>StartInterval</key>\n\t<integer>60</integer>"), "{xml}");
+        assert!(xml.contains("<key>StartInterval</key>\n\t<integer>300</integer>"), "{xml}");
         assert!(xml.contains("<key>RunAtLoad</key>") && xml.contains("<string>poll</string>"), "{xml}");
         assert!(!xml.contains("StartCalendarInterval"));
     }

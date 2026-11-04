@@ -201,11 +201,6 @@ function Run({ detail, timeout }: { detail: RunDetail; timeout: number }) {
           <span className="stat-key">Cost</span>
         </div>
       </div>
-      {detail.interactive && (
-        <p className="muted small-text">
-          Interactive session: the result and cost come from its transcript.
-        </p>
-      )}
       {resume && (
         <div className="resume">
           <span className="muted">Full conversation</span>
@@ -234,14 +229,33 @@ function Run({ detail, timeout }: { detail: RunDetail; timeout: number }) {
           <pre className={failed(detail.status) ? 'pre-bad' : undefined}>{errors}</pre>
         </section>
       )}
+      {detail.messages.length > 0 && (
+        <section className="stack" aria-label="Messages">
+          <div className="lbl">Messages Claude sent</div>
+          {detail.messages.map((message) => (
+            <div key={`${message.sent_at}-${message.text}`} className="stack-6">
+              <div className="action-result">
+                <span className={`dot dot-${message.error ? 'bad' : 'ok'}`} />
+                <span>
+                  <strong>{message.recipient_name || message.name}</strong> ·{' '}
+                  {when(message.sent_at)} · {message.error ?? `sent with ${message.name}`}
+                </span>
+              </div>
+              {message.summary && <strong>{message.summary}</strong>}
+              <pre>{message.text}</pre>
+            </div>
+          ))}
+        </section>
+      )}
       {detail.actions.length > 0 && (
         <section className="stack" aria-label="Actions">
           <div className="lbl">Actions</div>
           {detail.actions.map((done) => (
-            <div key={done.action} className="action-result">
+            <div key={`${done.action}/${done.recipient}`} className="action-result">
               <span className={`dot dot-${done.error ? 'bad' : 'ok'}`} />
               <span>
-                <strong>{done.name}</strong> · {done.error ?? 'sent'}
+                <strong>{done.name}</strong>
+                {done.recipient_name && ` → ${done.recipient_name}`} · {done.error ?? 'sent'}
               </span>
             </div>
           ))}

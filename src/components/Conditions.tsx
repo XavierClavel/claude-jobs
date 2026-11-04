@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react'
+import { useState } from 'react'
 import { api, errorsOf } from '../api'
 import {
   type CheckActions,
@@ -17,38 +17,9 @@ import { CommandConditionEditor } from './CommandConditionEditor'
 import { ConditionIcon } from './ConditionIcon'
 import { Icon } from './Icon'
 
-const ABOUT: Record<string, { tag: string; what: ReactNode; fix: ReactNode }> = {
-  claude: {
-    tag: 'Built in · every job',
-    what: (
-      <>
-        Checks <span className="mono">claude auth status</span>, and the claude.ai login's refresh
-        token in the keychain for an expiry date. A run the API turns away with a 401 goes back to
-        waiting until the credentials change. Checked every minute.
-      </>
-    ),
-    fix: (
-      <>
-        Sign in opens Terminal on <span className="mono">claude auth login</span>. Jobs wait, then
-        start as soon as you have signed in.
-      </>
-    ),
-  },
-  gcloud: {
-    tag: 'Built in · per job',
-    what: (
-      <>
-        Checks that gcloud has an active account, for the jobs that read BigQuery or Cloud Logging
-        and tick it in the editor. Checked every 5 minutes.
-      </>
-    ),
-    fix: (
-      <>
-        Sign in opens the browser on Google's sign-in, as{' '}
-        <span className="mono">gcloud auth login</span> does.
-      </>
-    ),
-  },
+const ABOUT: Record<string, { tag: string }> = {
+  claude: { tag: 'Built in · every job' },
+  gcloud: { tag: 'Built in · per job' },
 }
 
 // "exits with 0", "prints “Connected”", "prints something with “ready”"
@@ -106,10 +77,6 @@ export function Conditions({
       <header className="view-head">
         <div className="view-title">
           <h1>Conditions</h1>
-          <span className="muted lead">
-            A job starts only when every condition it uses is met. Until then its run waits, checks
-            again every 30 seconds, and starts the moment they all are.
-          </span>
         </div>
         <div className="actions">
           <button type="button" disabled={checking} onClick={() => checkNow()}>
@@ -187,9 +154,6 @@ export function Conditions({
           <button type="button" className="add-condition" onClick={() => setEditing({ id: null })}>
             <Icon name="plus" size={16} />
             Add a condition
-            <span className="normal">
-              · a command every job, or only the jobs that tick it, waits for
-            </span>
           </button>
         )}
       </div>
@@ -268,15 +232,13 @@ function BuiltInCard({
           <StateChip met={state.met} />
           <span className="tag">{about?.tag}</span>
         </div>
-        {state.problem ? (
+        {state.problem && (
           <p className="cond-problem">
             {state.problem}
             {waiting.map(
               (j) => ` ${j.name} has waited since ${midSentence(when(j.waiting?.since))}.`,
             )}
           </p>
-        ) : (
-          <p className="cond-about">{about?.what}</p>
         )}
         <dl className="kv">
           {condition === 'gcloud' && installed && (
@@ -289,8 +251,6 @@ function BuiltInCard({
         </dl>
       </div>
       <div className="cond-side">
-        <span className="lbl">When not met</span>
-        <span className="muted small-text">{about?.fix}</span>
         <div className="actions cond-actions">
           <button type="button" disabled={checking} onClick={onCheck}>
             Check now
@@ -362,15 +322,12 @@ function CommandCard({
           <dt>Met when it</dt>
           <dd>{expectText(command.expect)}</dd>
           <dt>Last check</dt>
-          <dd>{midSentence(when(command.checked_at))} · checked every minute</dd>
+          <dd>{midSentence(when(command.checked_at))}</dd>
           <UsedBy users={users} everyJob={command.every_job} onSelect={onSelect} />
         </dl>
       </div>
       <div className="cond-side">
-        <span className="lbl">When not met</span>
-        <span className="muted small-text">
-          {command.hint || 'Jobs wait, then start as soon as the command passes.'}
-        </span>
+        {command.hint && <span className="muted small-text">{command.hint}</span>}
         <div className="actions cond-actions">
           <button type="button" disabled={checking} onClick={onCheck}>
             Check now

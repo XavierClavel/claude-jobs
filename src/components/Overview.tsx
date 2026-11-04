@@ -57,7 +57,7 @@ export function Overview({
           <span className="muted">
             {jobs.length === 0
               ? 'No jobs yet'
-              : `${scheduled} ${scheduled === 1 ? 'job' : 'jobs'} scheduled${paused ? `, ${paused} paused` : ''} · select a job for its details`}
+              : `${scheduled} ${scheduled === 1 ? 'job' : 'jobs'} scheduled${paused ? `, ${paused} paused` : ''}`}
           </span>
         </div>
       </header>
@@ -66,10 +66,6 @@ export function Overview({
         {jobs.length === 0 ? (
           <div className="empty">
             <p>No jobs yet.</p>
-            <p className="muted">
-              A job runs a Claude Code prompt on a schedule, like /photobook-monitor every morning,
-              or when a pull request is opened or merged.
-            </p>
           </div>
         ) : (
           <>
@@ -151,15 +147,11 @@ export function Overview({
                     })}
                   </div>
                 )}
-                <p className="muted small-text">
-                  Times a Mac sleeps through run at wake; a login catches up what was missed in the
-                  last day.
-                </p>
               </section>
 
               <section aria-label="Needs attention" className="stack attention">
                 <div className="lbl">Needs attention</div>
-                {attention.length === 0 && <p className="muted">Nothing: every job is fine.</p>}
+                {attention.length === 0 && <p className="muted">Nothing</p>}
                 {attention.map((item) =>
                   item.kind === 'condition' ? (
                     <div key={item.condition} className="att">
@@ -277,7 +269,9 @@ export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
       items.push({
         kind: 'action',
         job,
-        title: `${job.name}: ${unsent.map((a) => a.name).join(', ')} did not send`,
+        title: `${job.name}: ${unsent
+          .map((a) => (a.recipient_name ? `${a.name} to ${a.recipient_name}` : a.name))
+          .join(', ')} did not send`,
         text: unsent.map((a) => a.error).join(' '),
       })
   }

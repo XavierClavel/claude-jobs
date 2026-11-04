@@ -205,6 +205,9 @@ export function App() {
             defaults={defaults}
             checks={checks}
             actions={actionList}
+            onActionSaved={(saved) =>
+              setActionList((all) => all.map((a) => (a.id === saved.id ? saved : a)))
+            }
             onClose={() => setView(job ? { kind: 'job', id: job.id } : { kind: 'overview' })}
             onSaved={(saved) => {
               setView(saved ? { kind: 'job', id: saved.id } : { kind: 'overview' })

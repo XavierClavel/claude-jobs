@@ -146,10 +146,6 @@ export function CommandConditionEditor({
           onChange={(e) => set('command', e.target.value)}
         />
       </label>
-      <p className="hint">
-        Run with <span className="mono">/bin/bash -c</span>, with the PATH of the job it is checked
-        for. It has 20 seconds to finish.
-      </p>
       <div className="stack">
         <span className="field">Met when</span>
         <div className="inline wrap gap-16">
@@ -187,11 +183,6 @@ export function CommandConditionEditor({
             />
           )}
         </div>
-        <p className="hint">
-          {draft.match === 'exit_code'
-            ? 'Its exit code, whatever it prints: 0 means success.'
-            : 'What it prints on stdout, whatever its exit code, without the spaces and line breaks around it.'}
-        </p>
       </div>
       <label className="field">
         When it is not met, say

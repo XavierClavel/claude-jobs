@@ -1,5 +1,6 @@
 //! Jobs: a prompt, when to run it and how. Stored in `~/.claude-jobs/jobs.json`.
 
+use crate::actions::ActionUse;
 use crate::conditions::CLAUDE;
 use crate::events::{self, Event};
 use crate::paths;
@@ -53,15 +54,19 @@ pub struct Job {
     /// command condition's id. See `conditions`.
     #[serde(default)]
     pub conditions: Vec<String>,
-    /// What to do when a run goes well: ids of the actions in `actions.json`. See `actions`.
+    /// What Claude may send itself while a run goes on, with its `send_message` tool: actions of `actions.json`, each
+    /// with who it sends to. See `mcp`.
     #[serde(default)]
-    pub on_success: Vec<String>,
+    pub during_run: Vec<ActionUse>,
+    /// What to do when a run goes well: actions of `actions.json`, each with who it sends to. See `actions`.
+    #[serde(default)]
+    pub on_success: Vec<ActionUse>,
     /// What to do when a run fails or times out.
     #[serde(default)]
-    pub on_failure: Vec<String>,
+    pub on_failure: Vec<ActionUse>,
     /// What to do when a run ends, however it went: on top of `on_success` or `on_failure`.
     #[serde(default)]
-    pub on_complete: Vec<String>,
+    pub on_complete: Vec<ActionUse>,
     /// What starts the job instead of its schedule, such as a pull request opened in a repository; none for a job
     /// that runs on its schedule. `hour`, `minute` and the days are kept but unused meanwhile. See `events`.
     #[serde(default)]
@@ -231,7 +236,7 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
     job.conditions.retain(|c| c != CLAUDE);
     job.conditions.sort_unstable();
     job.conditions.dedup();
-    for actions in [&mut job.on_success, &mut job.on_failure, &mut job.on_complete] {
+    for actions in [&mut job.during_run, &mut job.on_success, &mut job.on_failure, &mut job.on_complete] {
         actions.sort_unstable();
         actions.dedup();
     }
@@ -312,6 +317,7 @@ mod tests {
             interactive: false,
             chrome: false,
             conditions: vec![],
+            during_run: vec![],
             on_success: vec![],
             on_failure: vec![],
             on_complete: vec![],
@@ -376,15 +382,16 @@ mod tests {
 
     #[test]
     fn validate_sorts_the_actions_and_drops_repeats() {
+        let used = |action: &str, recipient: &str| ActionUse { action: action.into(), recipient: recipient.into() };
         let input = Job {
-            on_success: vec!["me".into(), "ops".into(), "me".into()],
-            on_failure: vec!["ops".into()],
+            on_success: vec![used("slack", "ops"), used("slack", "me"), used("slack", "ops")],
+            on_failure: vec![used("slack", "ops")],
             ..job("daily")
         };
         let out = validate(input, &[], None).expect("valid");
         assert_eq!(
             (out.on_success, out.on_failure),
-            (vec!["me".to_string(), "ops".to_string()], vec!["ops".to_string()])
+            (vec![used("slack", "me"), used("slack", "ops")], vec![used("slack", "ops")])
         );
     }
 

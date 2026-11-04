@@ -10,6 +10,7 @@ import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
+import type { Recipient } from './domain/Recipient'
 import type { Repo } from './domain/Repo'
 import type { RunDetail } from './domain/RunDetail'
 import type { RunRecord } from './domain/RunRecord'
@@ -38,11 +39,15 @@ export const api = {
   checkCondition: (condition: CommandCondition) =>
     invoke<CommandCheck>('check_condition', { condition }),
   listRepos: (path: string) => invoke<Repo[]>('list_repos', { path }),
+  openOnGithub: (repo: string, number: number | null = null) =>
+    invoke<void>('open_on_github', { repo, number }),
   listActions: () => invoke<Action[]>('list_actions'),
   saveAction: (action: Action, editing: string | null) =>
     invoke<Action>('save_action', { action, editing }),
   deleteAction: (id: string) => invoke<void>('delete_action', { id }),
-  testAction: (action: Action) => invoke<void>('test_action', { action }),
+  testAction: (action: Action, recipient: Recipient | null) =>
+    invoke<void>('test_action', { action, recipient }),
+
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
   listSkills: (claude: string, path: string, cwd: string) =>

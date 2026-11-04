@@ -140,7 +140,7 @@ export function RepoPicker({
           />
           <div id="repo-options" role="listbox" aria-label="Repositories" className="picker-list">
             {repos === null ? (
-              <p className="muted small-text picker-note">Loading your repositories from GitHub…</p>
+              <p className="muted small-text picker-note">Loading…</p>
             ) : error ? (
               <p className="small-text picker-note warn-text">{error}</p>
             ) : shown.length === 0 ? (
@@ -171,9 +171,7 @@ export function RepoPicker({
               ))
             )}
             {found.length > SHOWN && (
-              <p className="muted small-text picker-note">
-                {found.length - SHOWN} more: type to narrow them down.
-              </p>
+              <p className="muted small-text picker-note">{found.length - SHOWN} more</p>
             )}
           </div>
         </div>
@@ -184,9 +182,12 @@ export function RepoPicker({
 
 // The picture of the repository's owner, small: GitHub sizes it with `s`. Its initial until the list has loaded, or
 // when there is none.
-function OwnerAvatar({ repo, name }: { repo: Repo | undefined; name: string }) {
+// The picture of a repository's owner, from the list when it is in it, else from GitHub by the owner's login.
+export function OwnerAvatar({ repo, name }: { repo: Repo | undefined; name: string }) {
   const [broken, setBroken] = useState(false)
-  const url = repo?.owner_avatar
+  const owner = name.split('/')[0]
+  const url =
+    repo?.owner_avatar ?? (owner ? `https://avatars.githubusercontent.com/${owner}` : null)
   if (!url || broken)
     return (
       <span className="owner-avatar owner-initial" aria-hidden="true">

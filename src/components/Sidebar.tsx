@@ -168,13 +168,13 @@ export function Sidebar({
           )}
         </div>
         {actionList.length === 0 ? (
-          <span className="muted small-text">None yet · a Slack message when a run ends</span>
+          <span className="muted small-text">None yet</span>
         ) : (
           actionList.map((action) => (
             <div key={action.id} className="side-condition">
               <ActionIcon action={action} size={13} />
               <span className="side-condition-name">{action.name}</span>
-              <span className="muted small-text">{action.target.to}</span>
+              <span className="muted small-text">Slack</span>
             </div>
           ))
         )}

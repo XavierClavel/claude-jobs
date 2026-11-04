@@ -52,16 +52,68 @@ describe('History', () => {
     const notified = run({
       id: 'new',
       actions: [
-        { action: 'ops', name: 'Ops channel', error: null },
-        { action: 'me', name: 'Me', error: 'Slack refused the message (404 no_service).' },
+        {
+          action: 'alert',
+          name: 'Alert',
+          recipient: 'ops',
+          recipient_name: 'Ops channel',
+          error: null,
+        },
+        {
+          action: 'alert',
+          name: 'Alert',
+          recipient: 'me',
+          recipient_name: 'Me',
+          error: 'Slack refused the message (404 no_service).',
+        },
+        // From before recipients.
+        { action: 'old', name: 'Old', recipient: '', recipient_name: '', error: null },
       ],
     })
     vi.mocked(api.listRuns).mockResolvedValue([notified])
     vi.mocked(api.getRun).mockResolvedValue({ ...notified, out: '', err: '' })
     render(<History job={job()} run={null} onBack={() => {}} />)
     const actions = await screen.findByRole('region', { name: 'Actions' })
-    expect(actions).toHaveTextContent('Ops channel · sent')
-    expect(actions).toHaveTextContent('Me · Slack refused the message (404 no_service).')
+    expect(actions).toHaveTextContent('Alert → Ops channel · sent')
+    expect(actions).toHaveTextContent('Alert → Me · Slack refused the message (404 no_service).')
+    expect(actions).toHaveTextContent('Old · sent')
+  })
+
+  it('shows the messages Claude sent during the run', async () => {
+    const chatty = run({
+      id: 'new',
+      messages: [
+        {
+          action: 'alert',
+          name: 'Alert',
+          recipient: 'ops',
+          recipient_name: 'Ops channel',
+          sent_at: '2026-10-26T13:47:10Z',
+          summary: 'Orders stuck',
+          text: '**3** orders stuck',
+          error: null,
+        },
+        {
+          action: 'alert',
+          name: 'Alert',
+          recipient: 'me',
+          recipient_name: 'Me',
+          sent_at: '2026-10-26T13:48:00Z',
+          summary: '',
+          text: 'Done',
+          error: 'Slack refused the message (404 no_service).',
+        },
+      ],
+    })
+    vi.mocked(api.listRuns).mockResolvedValue([chatty])
+    vi.mocked(api.getRun).mockResolvedValue({ ...chatty, out: '', err: '' })
+    render(<History job={job()} run={null} onBack={() => {}} />)
+    const messages = await screen.findByRole('region', { name: 'Messages' })
+    expect(messages).toHaveTextContent('Ops channel')
+    expect(messages).toHaveTextContent('sent with Alert')
+    expect(messages).toHaveTextContent('Orders stuck')
+    expect(messages).toHaveTextContent('**3** orders stuck')
+    expect(messages).toHaveTextContent('Slack refused the message (404 no_service).')
   })
 
   it('opens on the newest run otherwise, and goes back to the job', async () => {

@@ -1,7 +1,9 @@
 import type { Checks } from '../conditions'
 import type { Action } from '../domain/Action'
+import type { ActionUse } from '../domain/ActionUse'
 import type { CommandConditionView } from '../domain/CommandConditionView'
 import type { JobView } from '../domain/JobView'
+import type { Recipient } from '../domain/Recipient'
 import type { RunRecord } from '../domain/RunRecord'
 
 export function job(overrides: Partial<JobView> = {}): JobView {
@@ -24,6 +26,7 @@ export function job(overrides: Partial<JobView> = {}): JobView {
     interactive: false,
     chrome: false,
     conditions: [],
+    during_run: [],
     on_success: [],
     on_failure: [],
     on_complete: [],
@@ -61,6 +64,7 @@ export function run(overrides: Partial<RunRecord> = {}): RunRecord {
     tmux_session: null,
     actions: [],
     pull_request: null,
+    messages: [],
     ...overrides,
   }
 }
@@ -98,14 +102,20 @@ export function command(overrides: Partial<CommandConditionView> = {}): CommandC
 
 export function action(overrides: Partial<Action> = {}): Action {
   return {
-    id: 'ops',
-    name: 'Ops channel',
+    id: 'alert',
+    name: 'Alert workflow',
     target: {
       kind: 'slack',
       webhook_url: 'https://hooks.slack.com/triggers/T0123/456/s3cr3t',
-      to: 'channel',
-      recipient: 'C0123ABCD',
     },
+    recipients: [recipient()],
     ...overrides,
   }
 }
+
+export function recipient(overrides: Partial<Recipient> = {}): Recipient {
+  return { id: 'ops', name: 'Ops channel', slack_id: 'C0123ABCD', ...overrides }
+}
+
+// The action `alert` to `recipient`.
+export const use = (recipient = 'ops', action = 'alert'): ActionUse => ({ action, recipient })
