@@ -37,6 +37,7 @@ describe('Sidebar', () => {
     sidebar([
       job({ id: 'a', name: 'Release digest', weekdays: [1, 3, 5], next_run: null }),
       job({ id: 'b', name: 'PR triage', enabled: false }),
+      job({ id: 'e', name: 'Weekly report', weekdays: [1], next_run: null }),
       job({
         id: 'c',
         name: 'Nightly tests',
@@ -53,6 +54,7 @@ describe('Sidebar', () => {
     ])
     expect(row('Release digest')).toHaveTextContent('Mon, Wed, Fri 09:00')
     expect(row('PR triage')).toHaveTextContent('Paused')
+    expect(row('Weekly report')).toHaveTextContent('Weekly Mon 09:00')
     expect(row('Nightly tests')).toHaveTextContent('Daily 06:00 · last run failed')
     expect(row('BigQuery cost')).toHaveTextContent('Waiting for Google Cloud')
   })
