@@ -104,6 +104,9 @@ describe('slug', () => {
 describe('scheduleShort', () => {
   it('says the schedule in a few words', () => {
     expect(scheduleShort({ hour: 6, minute: 0, weekdays: [], month_days: [] })).toBe('Daily 06:00')
+    expect(scheduleShort({ hour: 9, minute: 0, weekdays: [1], month_days: [] })).toBe(
+      'Weekly Mon 09:00',
+    )
     expect(scheduleShort({ hour: 9, minute: 0, weekdays: [1, 3, 5], month_days: [] })).toBe(
       'Mon, Wed, Fri 09:00',
     )

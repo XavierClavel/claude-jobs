@@ -61,14 +61,16 @@ export function scheduleText(
   return `${job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')} at ${time}`
 }
 
-// The schedule in a few words, for the list of jobs: "Daily 06:00", "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00".
+// The schedule in a few words, for the list of jobs: "Daily 06:00", "Weekly Mon 09:00" for one day a week,
+// "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00".
 export function scheduleShort(
   job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'>,
 ): string {
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) return `Monthly ${job.month_days.map(ordinal).join(', ')} ${time}`
   if (!job.weekdays.length) return `Daily ${time}`
-  return `${job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')} ${time}`
+  const days = job.weekdays.map((d) => DAYS[d - 1] ?? '?').join(', ')
+  return job.weekdays.length === 1 ? `Weekly ${days} ${time}` : `${days} ${time}`
 }
 
 const midnight = (at: Date) => new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime()
