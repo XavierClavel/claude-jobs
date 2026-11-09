@@ -3,4 +3,4 @@
 /**
  * The triggers there are.
  */
-export type EventKind = "pull_request_opened" | "pull_request_merged";
+export type EventKind = 'pull_request_opened' | 'pull_request_merged'

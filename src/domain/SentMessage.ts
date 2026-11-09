@@ -3,28 +3,31 @@
 /**
  * A message Claude sent during a run, with one of its job's `during_run` actions, kept in the run's record.
  */
-export type SentMessage = { action: string, 
-/**
- * The action's name then: it may have been renamed or deleted since.
- */
-name: string, 
-/**
- * Who it went to.
- */
-recipient: string, 
-/**
- * The recipient's name then.
- */
-recipient_name: string, sent_at: string, 
-/**
- * Its summary line, as Claude wrote it, if it gave one.
- */
-summary: string, 
-/**
- * The message as Claude wrote it, in Markdown.
- */
-text: string, 
-/**
- * Why it did not go out; none when it did.
- */
-error: string | null, };
+export type SentMessage = {
+  action: string
+  /**
+   * The action's name then: it may have been renamed or deleted since.
+   */
+  name: string
+  /**
+   * Who it went to.
+   */
+  recipient: string
+  /**
+   * The recipient's name then.
+   */
+  recipient_name: string
+  sent_at: string
+  /**
+   * Its summary line, as Claude wrote it, if it gave one.
+   */
+  summary: string
+  /**
+   * The message as Claude wrote it, in Markdown.
+   */
+  text: string
+  /**
+   * Why it did not go out; none when it did.
+   */
+  error: string | null
+}

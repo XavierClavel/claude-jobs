@@ -3,20 +3,22 @@
 /**
  * What an action did once a run ended, kept in the run's record.
  */
-export type ActionResult = { action: string, 
-/**
- * Its name then: it may have been renamed or deleted since.
- */
-name: string, 
-/**
- * Who it sent to; empty in a record from before recipients.
- */
-recipient: string, 
-/**
- * The recipient's name then.
- */
-recipient_name: string, 
-/**
- * Why it did not work; none when it did.
- */
-error: string | null, };
+export type ActionResult = {
+  action: string
+  /**
+   * Its name then: it may have been renamed or deleted since.
+   */
+  name: string
+  /**
+   * Who it sent to; empty in a record from before recipients.
+   */
+  recipient: string
+  /**
+   * The recipient's name then.
+   */
+  recipient_name: string
+  /**
+   * Why it did not work; none when it did.
+   */
+  error: string | null
+}

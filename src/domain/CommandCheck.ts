@@ -3,12 +3,14 @@
 /**
  * What a command condition's command did, for the editor's **Test** and **Check now**.
  */
-export type CommandCheck = { 
-/**
- * Why the condition is not met; none when it is.
- */
-problem: string | null, 
-/**
- * None when it did not finish in time, or was stopped by a signal.
- */
-exit_code: number | null, stdout: string, };
+export type CommandCheck = {
+  /**
+   * Why the condition is not met; none when it is.
+   */
+  problem: string | null
+  /**
+   * None when it did not finish in time, or was stopped by a signal.
+   */
+  exit_code: number | null
+  stdout: string
+}
