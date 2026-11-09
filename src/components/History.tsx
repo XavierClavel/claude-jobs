@@ -221,7 +221,14 @@ function Run({ detail, timeout }: { detail: RunDetail; timeout: number }) {
       )}
       <section className="stack">
         <div className="lbl">Result</div>
-        <pre>{detail.result || (running ? 'Still running…' : '(empty)')}</pre>
+        <pre>
+          {detail.result ||
+            (running
+              ? detail.progress
+                ? `Still running: ${detail.progress.text}`
+                : 'Still running…'
+              : '(empty)')}
+        </pre>
       </section>
       {errors && (
         <section className="stack">

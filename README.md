@@ -128,15 +128,28 @@ used it.
 Before recipients, each action had one user or channel. Such an action still works: it becomes the action's one
 recipient, with the action's id and name, which the jobs that used the action send to.
 
+## What a run is doing
+
+Every run, headless or interactive, starts Claude with the app's own MCP server (`claude-jobs mcp <job> <run>`, passed
+with `--mcp-config`), whose `set_status` tool sets one line of what the run is doing, at most 100 characters, such as
+"Retrieving orders from BigQuery…" or "Investigating logs…". The system prompt Claude Jobs appends to each run asks
+Claude to set it each time it starts a new step, and the tool is allowed without asking
+(`mcp__claude-jobs__set_status`). A prompt or skill that names its steps gets the same lines from one run to the next.
+
+The line Claude last set is kept in `<run>.progress.json` and shown while the run goes on: under the job's name in the
+sidebar, under its row in the overview's running jobs, on the job's current run, and in its history. A running run in
+`claude-jobs status` has it in `progress` (`text`, and `at`, when Claude set it). Until Claude sets one, and once the
+run has ended, there is none.
+
 ## Messages during a run
 
 A job can also let Claude send messages itself while it runs, with the same actions: pick them in the editor, under
 **During the run**, each with its recipient, and say in the prompt what to send to whom, such as "post the orders still
-stuck to Ops". Each run then starts Claude with the app's own MCP server (`claude-jobs mcp <job> <run>`, passed with
-`--mcp-config`), whose `send_message` tool sends Markdown, at most 3,000 characters, to one of those recipients (`to`,
-its id, or `<recipient>/<action>` for a recipient picked with several actions), with an optional one-line `summary`. The tool is allowed without
-asking (`mcp__claude-jobs__send_message`), headless or interactive: picking the actions is the permission. A job with
-nothing under **During the run** gets no server and no tool.
+stuck to Ops". The app's MCP server (see What a run is doing) then also has a `send_message` tool, which sends
+Markdown, at most 3,000 characters, to one of those recipients (`to`, its id, or `<recipient>/<action>` for a recipient
+picked with several actions), with an optional one-line `summary`. The tool is allowed without asking
+(`mcp__claude-jobs__send_message`), headless or interactive: picking the actions is the permission. A job with nothing
+under **During the run** gets no `send_message`.
 
 For a use, **Anyone** opens the action to any user or channel: Claude gives the Slack ID itself, in the
 tool's `slack_id` (`<action>/anyone` in `to`; `"recipient": "*"` in `jobs.json`). Claude cannot guess IDs, so allow the
@@ -196,8 +209,8 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 - `events.json`: for each job a pull request starts, when it began watching each repository, the pull requests it
   started for, and its last check (see Triggers).
 - `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id, what its
-  actions did, the messages Claude sent), with `<run>.out` (Claude's JSON output) and `<run>.err` (its stderr) beside
-  it. The last 100 runs are kept.
+  actions did, the messages Claude sent), with `<run>.out` (Claude's JSON output), `<run>.err` (its stderr) and
+  `<run>.progress.json` (the status line Claude last set) beside it. The last 100 runs are kept.
 - `logs/<job>.launchd.log`: what the runner itself printed.
 - `workspace/`: the working folder of jobs that need no particular one, empty (see Interactive jobs).
 
@@ -211,7 +224,8 @@ Claude Jobs widget uses `status` and `watch`:
 
 - `claude-jobs status` prints every job as JSON, with `next_run`, `previous_run` (its last scheduled time, to tell
   whether it is due today), its last 10 runs in `recent`, newest first, the conditions it needs that are not met in
-  `unmet_conditions` (`condition`, `claude` or `gcloud`, and `problem`), and `waiting` while a run waits for them.
+  `unmet_conditions` (`condition`, `claude` or `gcloud`, and `problem`), and `waiting` while a run waits for them. A
+  running run in `recent` says what it is doing in `progress` (see What a run is doing).
   `version` changes only when a field goes away or changes meaning.
 - `claude-jobs start <job>` starts a run now, like **Run now**.
 - `claude-jobs watch <job>` opens Terminal on a running interactive job, like **Watch**.

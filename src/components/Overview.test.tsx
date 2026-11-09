@@ -49,7 +49,14 @@ describe('Overview', () => {
     render(
       <Overview
         jobs={[
-          job({ id: 'bq', name: 'BigQuery cost', last_run: run({ status: 'running' }) }),
+          job({
+            id: 'bq',
+            name: 'BigQuery cost',
+            last_run: run({
+              status: 'running',
+              progress: { text: 'Retrieving costs from BigQuery…', at: '2026-10-26T13:50:02Z' },
+            }),
+          }),
           job({ id: 'idle', name: 'Release digest' }),
           job({ id: 'tests', name: 'Nightly tests', last_run: run({ status: 'running' }) }),
         ]}
@@ -63,8 +70,8 @@ describe('Overview', () => {
     expect(card.getByText('2 running')).toBeInTheDocument()
     const rows = card.getAllByRole('button')
     expect(rows.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/^BigQuery costsince \d\d:\d\d\d+:\d\d/),
-      expect.stringMatching(/^Nightly testssince \d\d:\d\d\d+:\d\d/),
+      expect.stringMatching(/^BigQuery costsince \d\d:\d\d[\d:]+Retrieving costs from BigQuery…$/),
+      expect.stringMatching(/^Nightly testssince \d\d:\d\d[\d:]+$/),
     ])
     await userEvent.click(rows[1] as HTMLElement)
     expect(onSelect).toHaveBeenCalledWith('tests')

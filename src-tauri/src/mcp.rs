@@ -1,8 +1,9 @@
 //! The tools Claude Jobs gives Claude during a run: an MCP server on stdio, `claude-jobs mcp <job> <run>`, which the
-//! runner passes Claude Code with `--mcp-config` when the job lets Claude send messages itself (`during_run`). Its
-//! one tool so far, `send_message`, sends a message to one of the recipients the job picked, with the action it
-//! picked for them, such as a Slack workflow, and keeps what it sent in `<run>.messages.jsonl`, which the runner adds
-//! to the run's record once Claude is done.
+//! runner passes Claude Code with `--mcp-config` on every run. `set_status` sets the one line the window shows of what
+//! the run is doing, kept in `<run>.progress.json`. `send_message`, there when the job lets Claude send messages itself
+//! (`during_run`), sends a message to one of the recipients the job picked, with the action it picked for them, such
+//! as a Slack workflow, and keeps what it sent in `<run>.messages.jsonl`, which the runner adds to the run's record
+//! once Claude is done.
 //!
 //! MCP over stdio is JSON-RPC 2.0, one message per line: requests get a reply on stdout, notifications none. Nothing
 //! else may go to stdout.
@@ -11,8 +12,10 @@ use crate::actions::{self, Action, Message, Recipient, SlackTo, ANYONE, MESSAGE_
 
 /// The longest summary line a message Claude sends may have.
 const SUMMARY_LIMIT: usize = 200;
+/// The longest status line Claude may set: what fits on a row of the window.
+const STATUS_LIMIT: usize = 100;
 use crate::jobs::{self, Job};
-use crate::runs;
+use crate::runs::{self, Progress};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,6 +29,9 @@ pub const SERVER: &str = "claude-jobs";
 const SEND_MESSAGE: &str = "send_message";
 /// `send_message` as Claude Code names it, for `--allowedTools`: a run cannot answer a permission prompt.
 pub const SEND_MESSAGE_TOOL: &str = "mcp__claude-jobs__send_message";
+const SET_STATUS: &str = "set_status";
+/// `set_status` as Claude Code names it, for `--allowedTools`.
+pub const SET_STATUS_TOOL: &str = "mcp__claude-jobs__set_status";
 
 /// The protocol versions whose messages this server writes the same way; the latest is answered to a client that asks
 /// for another.
@@ -113,6 +119,8 @@ struct Server {
     destinations: Vec<Destination>,
     /// Where each message sent is kept, one JSON line each.
     log: PathBuf,
+    /// Where the status line Claude last set is kept.
+    progress: PathBuf,
 }
 
 impl Server {
@@ -121,8 +129,14 @@ impl Server {
             return Err(format!("no run {job_id}/{run_id}"));
         }
         let job = jobs::find(job_id)?.ok_or_else(|| format!("no job called {job_id}"))?;
-        let destinations = destinations(&job, &actions::load()?);
-        Ok(Server { job, destinations, log: runs::messages_file(job_id, run_id) })
+        // A job that sends nothing during its runs does not need actions.json to read, nor to be readable.
+        let destinations = if job.during_run.is_empty() { vec![] } else { destinations(&job, &actions::load()?) };
+        Ok(Server {
+            job,
+            destinations,
+            log: runs::messages_file(job_id, run_id),
+            progress: runs::progress_file(job_id, run_id),
+        })
     }
 
     /// The reply to one line from Claude Code, if it needs one. `send` sends a message.
@@ -138,12 +152,14 @@ impl Server {
             Some("initialize") => self.initialize(&params),
             Some("ping") => json!({}),
             Some("tools/list") => json!({ "tools": self.tools() }),
-            Some("tools/call") => match params.get("name").and_then(Value::as_str) {
-                Some(SEND_MESSAGE) if !self.destinations.is_empty() => {
-                    self.send_message(params.get("arguments").unwrap_or(&Value::Null), send)
+            Some("tools/call") => {
+                let args = params.get("arguments").unwrap_or(&Value::Null);
+                match params.get("name").and_then(Value::as_str) {
+                    Some(SET_STATUS) => self.set_status(args),
+                    Some(SEND_MESSAGE) if !self.destinations.is_empty() => self.send_message(args, send),
+                    name => return Some(error(id, -32602, &format!("no tool called {}", name.unwrap_or("(none)")))),
                 }
-                name => return Some(error(id, -32602, &format!("no tool called {}", name.unwrap_or("(none)")))),
-            },
+            }
             Some(method) => return Some(error(id, -32601, &format!("no method called {method}"))),
             None => return Some(error(id, -32600, "a request needs a method")),
         };
@@ -166,9 +182,36 @@ impl Server {
     }
 
     fn tools(&self) -> Vec<Value> {
-        if self.destinations.is_empty() {
-            return vec![];
+        let mut tools = vec![];
+        if !self.destinations.is_empty() {
+            tools.push(self.send_message_tool());
         }
+        tools.push(json!({
+            "name": SET_STATUS,
+            "title": "Set the run's status",
+            "description": format!(
+                "Sets the one line Claude Jobs shows of what this run is doing, such as \"Retrieving orders from \
+                 BigQuery…\" or \"Investigating logs…\": what you are doing now, in a few words, {STATUS_LIMIT} \
+                 characters at most. Call it before your first step, then again before each new step of the task; \
+                 each call replaces the line before. It notifies nobody: it is only shown in the app while the run \
+                 goes on."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "What you are doing now, in one short line." },
+                },
+                "required": ["text"],
+                "additionalProperties": false,
+            },
+            "annotations": {
+                "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false,
+            },
+        }));
+        tools
+    }
+
+    fn send_message_tool(&self) -> Value {
         let keys: Vec<&str> = self.destinations.iter().map(|d| d.key.as_str()).collect();
         let list: Vec<String> = self.destinations.iter().map(|d| format!("- `{}`: {}", d.key, about(d))).collect();
         let open = self.destinations.iter().any(|d| d.anyone);
@@ -204,7 +247,7 @@ impl Server {
                  refuses the message, the ID may be of the other kind.",
             );
         }
-        vec![json!({
+        json!({
             "name": SEND_MESSAGE,
             "title": "Send a message",
             "description": description,
@@ -215,7 +258,25 @@ impl Server {
                 "additionalProperties": false,
             },
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "openWorldHint": true },
-        })]
+        })
+    }
+
+    /// Replaces the run's status line with the one Claude gives.
+    fn set_status(&self, args: &Value) -> Value {
+        let text = args.get("text").and_then(Value::as_str).unwrap_or_default().trim();
+        if text.is_empty() {
+            return outcome(Err("The status is empty: say in a few words what you are doing.".to_string()));
+        }
+        if text.contains('\n') || text.chars().count() > STATUS_LIMIT {
+            return outcome(Err(format!(
+                "The status is one line of {STATUS_LIMIT} characters at most, such as \"Investigating logs…\"."
+            )));
+        }
+        let progress = Progress { text: text.to_string(), at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true) };
+        outcome(match replace(&self.progress, &progress) {
+            Ok(()) => Ok("Shown.".to_string()),
+            Err(e) => Err(format!("The status could not be kept ({e}): go on with the task without it.")),
+        })
     }
 
     /// A tool's result: what Claude reads, and whether it failed. A failure Claude can act on is a result, not a
@@ -355,6 +416,17 @@ fn error(id: Value, code: i32, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
+/// Writes the run's status line in place of the one before, whole, so a reader never sees half of it.
+fn replace(path: &Path, progress: &Progress) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string(progress).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
 /// Adds a message to the run's log, one line, so a reader never sees half of one.
 fn keep(path: &Path, record: &SentMessage) -> Result<(), String> {
     if let Some(dir) = path.parent() {
@@ -398,6 +470,7 @@ mod tests {
             destinations: destinations(&job, &[slack("alerts", &recipients)]),
             job,
             log: dir.join("20261103T080000Z.messages.jsonl"),
+            progress: dir.join("20261103T080000Z.progress.json"),
         }
     }
 
@@ -434,13 +507,41 @@ mod tests {
 
         let list = call(&server, json!({"jsonrpc": "2.0", "id": 4, "method": "tools/list"}), &mut never);
         let tools = list["result"]["tools"].as_array().expect("tools");
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
         assert_eq!(tools[0]["name"], SEND_MESSAGE);
+        assert_eq!(tools[1]["name"], SET_STATUS);
         assert_eq!(tools[0]["inputSchema"]["properties"]["to"]["enum"], json!(["me", "ops"]));
         let about = tools[0]["description"].as_str().expect("description");
         assert!(about.contains("- `me`: Xavier, a Slack user (U012AB3CD), with alerts workflow"), "{about}");
         assert!(about.contains("- `ops`: Ops, a Slack channel (C012AB3CD), with alerts workflow"), "{about}");
         assert_eq!(SEND_MESSAGE_TOOL, format!("mcp__{SERVER}__{SEND_MESSAGE}"));
+        assert_eq!(SET_STATUS_TOOL, format!("mcp__{SERVER}__{SET_STATUS}"));
+    }
+
+    #[test]
+    fn the_status_claude_sets_replaces_the_one_before() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let server = server(dir.path());
+        let set = |text: &str| {
+            let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                 "params": {"name": SET_STATUS, "arguments": {"text": text}}});
+            call(&server, request, &mut never)["result"].clone()
+        };
+        let read = || -> Option<Progress> { serde_json::from_str(&fs::read_to_string(&server.progress).ok()?).ok() };
+        let shown = set(" Retrieving orders from BigQuery… ");
+        assert_eq!((shown["isError"].as_bool(), shown["content"][0]["text"].as_str()), (Some(false), Some("Shown.")));
+        assert_eq!(read().map(|p| p.text).as_deref(), Some("Retrieving orders from BigQuery…"));
+        assert_eq!(set("Investigating logs…")["isError"], false);
+        let kept = read().expect("a status");
+        assert_eq!(kept.text, "Investigating logs…");
+        assert!(chrono::DateTime::parse_from_rfc3339(&kept.at).is_ok(), "{}", kept.at);
+
+        // What cannot be shown on one row is refused, and the line before stays.
+        for refused in [" ".to_string(), "two\nlines".to_string(), "é".repeat(STATUS_LIMIT + 1)] {
+            assert_eq!(set(&refused)["isError"], true, "{refused}");
+        }
+        assert_eq!(read().map(|p| p.text).as_deref(), Some("Investigating logs…"));
+        assert!(read_log(&server.log).is_empty(), "a status is not a message");
     }
 
     #[test]
@@ -466,6 +567,7 @@ mod tests {
             destinations: destinations(&job, &[slack("dm", &[]), slack("post", &[])]),
             job,
             log: dir.path().join("20261103T080000Z.messages.jsonl"),
+            progress: dir.path().join("20261103T080000Z.progress.json"),
         };
         let list = call(&server, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}), &mut never);
         let tool = &list["result"]["tools"][0];
@@ -574,10 +676,15 @@ mod tests {
         let reply = call(&server, unknown_method, &mut never);
         assert_eq!((reply["id"].as_str(), reply["error"]["code"].as_i64()), (Some("a"), Some(-32601)));
         assert_eq!(server.reply("{oops", &mut never).expect("a reply")["error"]["code"], -32700);
-        // With no one to send to, there is no tool.
+        // With no one to send to, there is only the status line.
         let bare = Server { destinations: vec![], ..server };
         let list = call(&bare, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}), &mut never);
-        assert_eq!(list["result"]["tools"], json!([]));
+        let names: Vec<&str> =
+            list["result"]["tools"].as_array().expect("tools").iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names, [SET_STATUS]);
+        let send = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                          "params": {"name": SEND_MESSAGE, "arguments": {"to": "me", "text": "hi"}}});
+        assert_eq!(call(&bare, send, &mut never)["error"]["code"], -32602);
     }
 
     #[test]

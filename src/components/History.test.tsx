@@ -116,6 +116,19 @@ describe('History', () => {
     expect(messages).toHaveTextContent('Slack refused the message (404 no_service).')
   })
 
+  it('says what a run still going is doing', async () => {
+    const live = run({
+      id: 'live',
+      status: 'running',
+      result: null,
+      progress: { text: 'Investigating logs…', at: '2026-10-29T07:31:00Z' },
+    })
+    vi.mocked(api.listRuns).mockResolvedValue([live])
+    vi.mocked(api.getRun).mockResolvedValue({ ...live, out: '', err: '' })
+    render(<History job={job()} run="live" onBack={() => {}} />)
+    expect(await screen.findByText('Still running: Investigating logs…')).toBeInTheDocument()
+  })
+
   it('opens on the newest run otherwise, and goes back to the job', async () => {
     const onBack = vi.fn()
     render(<History job={job()} run={null} onBack={onBack} />)

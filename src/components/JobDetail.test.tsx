@@ -98,6 +98,13 @@ describe('JobDetail', () => {
     expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled()
   })
 
+  it('says what the run is doing, once Claude has said it', () => {
+    const progress = { text: 'Retrieving orders from BigQuery…', at: '2026-10-26T13:50:02Z' }
+    detail(job({ last_run: { ...live, progress } }))
+    const now = screen.getByRole('region', { name: 'Current run' })
+    expect(now).toHaveTextContent(/^Running\s*Retrieving orders from BigQuery…\s*Started/)
+  })
+
   it('lists the recent runs, and opens the history on the one clicked', async () => {
     const onHistory = vi.fn()
     const runs = [

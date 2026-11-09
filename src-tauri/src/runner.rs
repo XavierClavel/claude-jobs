@@ -26,6 +26,10 @@ pub const STATUS_INSTRUCTION: &str = "This is an unattended scheduled run that n
 message with a line of its own: `RUN STATUS: FAILED` when the task could not be done (for example a data source, \
 credential or tool failed and you stopped), otherwise `RUN STATUS: OK`.";
 const STATUS_PREFIX: &str = "RUN STATUS:";
+/// What makes Claude say what it is doing, which the window shows while the run goes on: see `mcp`.
+const PROGRESS_INSTRUCTION: &str = "Claude Jobs shows a line of what this run is doing, which you set with its \
+`set_status` tool, in a few words such as \"Retrieving orders from BigQuery…\": set it before your first step, then \
+again before each new step of the task.";
 
 /// How Claude Code turns away a session whose login expired: "Login expired · Please run /login".
 pub fn is_login_error(text: &str) -> bool {
@@ -184,6 +188,7 @@ fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> O
         actions: vec![],
         pull_request: pull_request.cloned(),
         messages: vec![],
+        progress: None,
     };
     if let Err(e) = runs::save(&rec) {
         eprintln!("cannot record the run: {e}");
@@ -377,26 +382,26 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     Ok(Outcome::Finished)
 }
 
-/// What every run passes Claude Code, headless or interactive: how to end its answer, its model, Chrome, the tools
-/// Claude Jobs gives it, and the tools it may use without asking.
+/// What every run passes Claude Code, headless or interactive: how to end its answer and say what it is doing, its
+/// model, Chrome, the tools Claude Jobs gives it, and the tools it may use without asking.
 pub fn session_args(job: &Job, run_id: &str) -> Result<Vec<String>, String> {
-    let mut args = vec!["--append-system-prompt".to_string(), STATUS_INSTRUCTION.to_string()];
+    let mut args = vec!["--append-system-prompt".to_string(), format!("{STATUS_INSTRUCTION} {PROGRESS_INSTRUCTION}")];
     if !job.model.is_empty() {
         args.extend(["--model".to_string(), job.model.clone()]);
     }
     if job.chrome {
         args.push("--chrome".to_string());
     }
+    args.extend(["--mcp-config".to_string(), mcp::config(&job.id, run_id)?]);
+    // Nobody is there to answer a permission prompt. The status line only shows in the app.
     let mut allowed = job.allowed_tools.clone();
+    allowed.push(mcp::SET_STATUS_TOOL.to_string());
     if !job.during_run.is_empty() {
-        args.extend(["--mcp-config".to_string(), mcp::config(&job.id, run_id)?]);
-        // The job picked what Claude may send with: that is the permission, and nobody is there to give another.
+        // The job picked what Claude may send with: that is the permission.
         allowed.push(mcp::SEND_MESSAGE_TOOL.to_string());
     }
-    if !allowed.is_empty() {
-        args.push("--allowedTools".to_string());
-        args.extend(allowed);
-    }
+    args.push("--allowedTools".to_string());
+    args.extend(allowed);
     Ok(args)
 }
 
@@ -503,21 +508,21 @@ mod tests {
     }
 
     #[test]
-    fn a_job_that_lets_claude_send_messages_gets_the_tool_and_its_permission() {
+    fn every_run_can_set_its_status_and_a_job_that_lets_claude_send_messages_can_send_them() {
         let mut job: Job = serde_json::from_value(serde_json::json!({
             "id": "j", "name": "J", "prompt": "/j", "hour": 9, "minute": 0, "allowed_tools": ["Read"]
         }))
         .expect("parses");
         let args = session_args(&job, "20261103T080000Z").expect("args");
-        assert!(!args.iter().any(|a| a == "--mcp-config"), "{args:?}");
-        assert_eq!(args[args.len() - 2..], ["--allowedTools", "Read"]);
-
-        job.during_run = vec![crate::actions::ActionUse { action: "slack".into(), recipient: "me".into() }];
-        let args = session_args(&job, "20261103T080000Z").expect("args");
+        assert!(args[1].contains("`set_status`"), "{}", args[1]);
         let at = args.iter().position(|a| a == "--mcp-config").expect("an MCP config");
         let config: serde_json::Value = serde_json::from_str(&args[at + 1]).expect("json");
         assert_eq!(config["mcpServers"][mcp::SERVER]["args"], serde_json::json!(["mcp", "j", "20261103T080000Z"]));
-        assert_eq!(args[args.len() - 3..], ["--allowedTools", "Read", mcp::SEND_MESSAGE_TOOL]);
+        assert_eq!(args[args.len() - 3..], ["--allowedTools", "Read", mcp::SET_STATUS_TOOL]);
+
+        job.during_run = vec![crate::actions::ActionUse { action: "slack".into(), recipient: "me".into() }];
+        let args = session_args(&job, "20261103T080000Z").expect("args");
+        assert_eq!(args[args.len() - 4..], ["--allowedTools", "Read", mcp::SET_STATUS_TOOL, mcp::SEND_MESSAGE_TOOL]);
     }
 
     #[test]
