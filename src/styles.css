@@ -938,10 +938,54 @@ tbody tr:hover td {
   color: var(--running);
 }
 
-.stat-running .elapsed {
+/* One row a running job, its time so far on the right: a click opens the job. */
+.running-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.running-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: baseline;
+  height: auto;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--running-line);
+  border-radius: 0;
+  background: none;
+  font-weight: 400;
+  font-size: 13px;
+  text-align: left;
+}
+
+.running-name {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.running-since {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* Its top border separates it from the row above: hover leaves it as it is. */
+.running-row:hover:not(:disabled) {
+  border-color: var(--running-line);
+}
+
+.running-row:hover:not(:disabled) .running-name {
+  color: var(--running);
+}
+
+.running-row .elapsed {
   font-family: var(--mono);
-  font-size: 15px;
   font-weight: 500;
+  color: var(--running);
+  font-variant-numeric: tabular-nums;
 }
 
 .grid-overview {

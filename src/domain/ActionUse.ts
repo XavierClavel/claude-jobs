@@ -4,4 +4,4 @@
  * An action a job uses, and which of its recipients it sends to: empty for none, `ANYONE` for whoever Claude names
  * during the run.
  */
-export type ActionUse = { action: string; recipient: string }
+export type ActionUse = { action: string, recipient: string, };

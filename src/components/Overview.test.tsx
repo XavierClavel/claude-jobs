@@ -43,6 +43,32 @@ describe('Overview', () => {
     expect(onSelect).toHaveBeenCalledWith('late')
     expect(api.listRuns).toHaveBeenCalledTimes(3)
   })
+
+  it('lists the running jobs one under the other, each opening its job', async () => {
+    const onSelect = vi.fn()
+    render(
+      <Overview
+        jobs={[
+          job({ id: 'bq', name: 'BigQuery cost', last_run: run({ status: 'running' }) }),
+          job({ id: 'idle', name: 'Release digest' }),
+          job({ id: 'tests', name: 'Nightly tests', last_run: run({ status: 'running' }) }),
+        ]}
+        checks={signedIn}
+        actions={{ onSignIn: noop, onCheck: () => Promise.resolve() }}
+        onSelect={onSelect}
+        onOpenRun={noop}
+      />,
+    )
+    const card = within(screen.getByRole('region', { name: 'Running' }))
+    expect(card.getByText('2 running')).toBeInTheDocument()
+    const rows = card.getAllByRole('button')
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^BigQuery costsince \d\d:\d\d\d+:\d\d/),
+      expect.stringMatching(/^Nightly testssince \d\d:\d\d\d+:\d\d/),
+    ])
+    await userEvent.click(rows[1] as HTMLElement)
+    expect(onSelect).toHaveBeenCalledWith('tests')
+  })
 })
 
 describe('needsAttention', () => {
