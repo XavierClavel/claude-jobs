@@ -17,11 +17,15 @@ import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
 import { UpdateCheck } from './UpdateCheck'
 
-// What a job is doing, in the line under its name.
+// What a job is doing, in the line under its name: of a run, its time so far first, which the ellipsis spares.
 export function JobLine({ job, checks }: { job: JobView; checks: Checks }) {
   const last = job.last_run
   if (last && isRunning(job))
-    return (
+    return last.progress ? (
+      <>
+        <Elapsed since={last.started_at} /> · {last.progress.text}
+      </>
+    ) : (
       <>
         Running · <Elapsed since={last.started_at} /> so far
       </>

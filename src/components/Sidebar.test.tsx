@@ -51,12 +51,23 @@ describe('Sidebar', () => {
         unmet_conditions: [{ condition: 'gcloud', problem: 'signed out' }],
         waiting: { since: '2026-10-30T18:00:00Z', trigger: 'schedule', pid: 1 },
       }),
+      job({ id: 'f', name: 'Photobook monitor', last_run: run({ status: 'running' }) }),
+      job({
+        id: 'g',
+        name: 'Stuck orders',
+        last_run: run({
+          status: 'running',
+          progress: { text: 'Investigating logs…', at: '2026-10-26T13:50:02Z' },
+        }),
+      }),
     ])
     expect(row('Release digest')).toHaveTextContent('Mon, Wed, Fri 09:00')
     expect(row('PR triage')).toHaveTextContent('Paused')
     expect(row('Weekly report')).toHaveTextContent('Weekly Mon 09:00')
     expect(row('Nightly tests')).toHaveTextContent('Daily 06:00 · last run failed')
     expect(row('BigQuery cost')).toHaveTextContent('Waiting for Google Cloud')
+    expect(row('Photobook monitor')).toHaveTextContent(/Running · [\d:]+ so far$/)
+    expect(row('Stuck orders')).toHaveTextContent(/Stuck orders[\d:]+ · Investigating logs…$/)
   })
 
   it('selects the job clicked', async () => {

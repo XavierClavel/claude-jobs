@@ -115,6 +115,7 @@ export function JobDetail({
                 <span className="dot dot-running" />
                 Running
               </div>
+              {last.progress && <div className="now-progress">{last.progress.text}</div>}
               <div>
                 Started {midSentence(when(last.started_at))}{' '}
                 {last.pull_request ? `for ${prRef(last.pull_request)}` : STARTED_BY[last.trigger]} ·

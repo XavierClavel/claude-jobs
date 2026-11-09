@@ -34,7 +34,9 @@ export function Overview({
   onOpenRun: (job: string, run: string) => void
 }) {
   const running = jobs.flatMap((job) =>
-    isRunning(job) && job.last_run ? [{ job, started: job.last_run.started_at }] : [],
+    isRunning(job) && job.last_run
+      ? [{ job, started: job.last_run.started_at, progress: job.last_run.progress?.text }]
+      : [],
   )
   const waiting = jobs.filter((j) => j.waiting)
   const scheduled = jobs.filter((j) => j.enabled).length
@@ -76,7 +78,7 @@ export function Overview({
                 <section className="stat stat-running" aria-label="Running">
                   <span className="stat-value">{running.length} running</span>
                   <div className="running-list">
-                    {running.map(({ job, started }) => (
+                    {running.map(({ job, started, progress }) => (
                       <button
                         type="button"
                         key={job.id}
@@ -86,6 +88,7 @@ export function Overview({
                         <span className="running-name">{job.name}</span>
                         <span className="running-since">since {timeOf(started)}</span>
                         <Elapsed since={started} />
+                        {progress && <span className="running-progress">{progress}</span>}
                       </button>
                     ))}
                   </div>

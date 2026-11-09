@@ -6,14 +6,15 @@ use crate::mcp::SentMessage;
 use crate::{jobs, paths};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
 pub const KEEP_RUNS: usize = 100;
 const DETAIL_TAIL: usize = 200_000;
 /// The files of a run beside `<run>.json`; `done` and `failed` are what the Stop hooks of an interactive run write,
-/// `messages.jsonl` what Claude sent during it.
-const RUN_FILES: [&str; 7] = ["json", "out", "err", "done", "failed", "settings.json", "messages.jsonl"];
+/// `messages.jsonl` what Claude sent during it, `progress.json` what it last said it was doing.
+const RUN_FILES: [&str; 8] =
+    ["json", "out", "err", "done", "failed", "settings.json", "messages.jsonl", "progress.json"];
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -84,6 +85,18 @@ pub struct RunRecord {
     /// The messages Claude sent while the run went on, with its `send_message` tool: see `mcp`.
     #[serde(default)]
     pub messages: Vec<SentMessage>,
+    /// What Claude last said it was doing, with its `set_status` tool, while the run goes on. It is read from
+    /// `<run>.progress.json`, never written to the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
+}
+
+/// One line of what a run is doing, such as "Retrieving orders from BigQuery…", as Claude set it.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[ts(export)]
+pub struct Progress {
+    pub text: String,
+    pub at: String,
 }
 
 /// A run waiting for its job's conditions, kept in `runs/<job>/waiting.json` while its runner is alive. It is not in
@@ -116,6 +129,11 @@ pub fn messages_file(job_id: &str, run_id: &str) -> PathBuf {
     dir(job_id).join(format!("{run_id}.messages.jsonl"))
 }
 
+/// What a run's `set_status` last set: a `Progress`, shown while the run goes on.
+pub fn progress_file(job_id: &str, run_id: &str) -> PathBuf {
+    dir(job_id).join(format!("{run_id}.progress.json"))
+}
+
 pub fn valid_run_id(id: &str) -> bool {
     // 20261026T134651Z
     id.len() == 16
@@ -131,11 +149,18 @@ pub fn pid_alive(pid: u32) -> bool {
     res == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// A run recorded as running whose process is gone was cut short: the Mac shut down, or the runner was killed.
-fn with_liveness(mut rec: RunRecord) -> RunRecord {
+/// A record of `dir` as it stands now. A run recorded as running whose process is gone was cut short: the Mac shut
+/// down, or the runner was killed. One still running says what Claude last said it was doing.
+fn current(mut rec: RunRecord, dir: &Path) -> RunRecord {
     if rec.status == RunStatus::Running && !rec.pid.is_some_and(pid_alive) {
         rec.status = RunStatus::Interrupted;
     }
+    rec.progress = if rec.status == RunStatus::Running && valid_run_id(&rec.id) {
+        let path = dir.join(format!("{}.progress.json", rec.id));
+        fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok())
+    } else {
+        None
+    };
     rec
 }
 
@@ -155,12 +180,13 @@ fn run_files(job_id: &str) -> Vec<PathBuf> {
 }
 
 pub fn list(job_id: &str, limit: usize) -> Vec<RunRecord> {
+    let d = dir(job_id);
     run_files(job_id)
         .into_iter()
         .take(limit)
         .filter_map(|p| fs::read_to_string(p).ok())
         .filter_map(|text| serde_json::from_str::<RunRecord>(&text).ok())
-        .map(with_liveness)
+        .map(|rec| current(rec, &d))
         .collect()
 }
 
@@ -229,7 +255,8 @@ pub fn detail(job_id: &str, run_id: &str) -> Result<RunDetail, String> {
     }
     let d = dir(job_id);
     let text = fs::read_to_string(d.join(format!("{run_id}.json"))).map_err(|_| "No such run.".to_string())?;
-    let run = with_liveness(serde_json::from_str(&text).map_err(|e| format!("The run record does not parse: {e}"))?);
+    let run = serde_json::from_str(&text).map_err(|e| format!("The run record does not parse: {e}"))?;
+    let run = current(run, &d);
     let read = |ext: &str| tail(fs::read_to_string(d.join(format!("{run_id}.{ext}"))).unwrap_or_default());
     Ok(RunDetail { run, out: read("out"), err: read("err") })
 }
@@ -262,7 +289,32 @@ mod tests {
     fn a_running_record_without_a_live_process_is_interrupted() {
         let text = r#"{"id": "20261026T134651Z", "job": "j", "trigger": "schedule", "status": "running",
             "started_at": "2026-10-26T13:46:51Z", "pid": 999999999}"#;
-        let rec = with_liveness(serde_json::from_str(text).expect("parses"));
+        let rec = current(serde_json::from_str(text).expect("parses"), Path::new("/nonexistent"));
         assert_eq!(rec.status, RunStatus::Interrupted);
+    }
+
+    #[test]
+    fn a_running_record_says_what_claude_last_said_it_was_doing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let progress = r#"{"text": "Investigating logs…", "at": "2026-10-26T13:50:02Z"}"#;
+        fs::write(dir.path().join("20261026T134651Z.progress.json"), progress).expect("write");
+        let record = |status: &str, pid: u32| -> RunRecord {
+            let text = format!(
+                r#"{{"id": "20261026T134651Z", "job": "j", "trigger": "schedule", "status": "{status}",
+                    "started_at": "2026-10-26T13:46:51Z", "pid": {pid}}}"#
+            );
+            serde_json::from_str(&text).expect("parses")
+        };
+        let running = current(record("running", std::process::id()), dir.path());
+        let shown = Progress { text: "Investigating logs…".into(), at: "2026-10-26T13:50:02Z".into() };
+        assert_eq!(running.progress, Some(shown));
+        // It goes to the window and to `status`, but never into the record's file.
+        assert!(serde_json::to_string(&running).expect("json").contains("Investigating logs…"));
+        assert!(!serde_json::to_string(&record("running", 1)).expect("json").contains("progress"));
+        // Once the run has ended, or was cut short, there is nothing going on to show.
+        assert_eq!(current(record("ok", std::process::id()), dir.path()).progress, None);
+        assert_eq!(current(record("running", 999_999_999), dir.path()).progress, None);
+        let elsewhere = tempfile::tempdir().expect("temp dir");
+        assert_eq!(current(record("running", std::process::id()), elsewhere.path()).progress, None);
     }
 }
