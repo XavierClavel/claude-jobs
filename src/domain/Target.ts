@@ -3,4 +3,4 @@
 /**
  * What an action sends with.
  */
-export type Target = { "kind": "slack", webhook_url: string, };
+export type Target = { kind: 'slack'; webhook_url: string }

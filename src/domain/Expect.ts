@@ -3,4 +3,6 @@
 /**
  * What a command condition's command has to do.
  */
-export type Expect = { "kind": "exit_code", code: number, } | { "kind": "stdout", text: string, contains: boolean, };
+export type Expect =
+  | { kind: 'exit_code'; code: number }
+  | { kind: 'stdout'; text: string; contains: boolean }

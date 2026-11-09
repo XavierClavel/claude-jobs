@@ -3,24 +3,30 @@
 /**
  * The pull request a run was started for, kept in its record.
  */
-export type PullRequest = { 
-/**
- * `owner/name`, as the job names it.
- */
-repo: string, number: number, title: string, url: string, 
-/**
- * The login of whoever opened it.
- */
-author: string, 
-/**
- * Its branch.
- */
-head: string, 
-/**
- * The branch it goes into.
- */
-base: string, draft: boolean, created_at: string, 
-/**
- * When it was merged, for a run a merge started.
- */
-merged_at: string | null, };
+export type PullRequest = {
+  /**
+   * `owner/name`, as the job names it.
+   */
+  repo: string
+  number: number
+  title: string
+  url: string
+  /**
+   * The login of whoever opened it.
+   */
+  author: string
+  /**
+   * Its branch.
+   */
+  head: string
+  /**
+   * The branch it goes into.
+   */
+  base: string
+  draft: boolean
+  created_at: string
+  /**
+   * When it was merged, for a run a merge started.
+   */
+  merged_at: string | null
+}

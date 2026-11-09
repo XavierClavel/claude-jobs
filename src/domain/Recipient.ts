@@ -4,9 +4,12 @@
  * Who an action's message goes to: a Slack user or channel, one of the action's, picked wherever a job uses it. Its
  * id is the action's own: two actions can each have a recipient `ops`.
  */
-export type Recipient = { id: string, name: string, 
-/**
- * The user's or the channel's Slack ID, such as `U012AB3CD` or `C012AB3CD`. Which it is names the workflow's
- * variable it comes in: `user` or `channel`.
- */
-slack_id: string, };
+export type Recipient = {
+  id: string
+  name: string
+  /**
+   * The user's or the channel's Slack ID, such as `U012AB3CD` or `C012AB3CD`. Which it is names the workflow's
+   * variable it comes in: `user` or `channel`.
+   */
+  slack_id: string
+}
