@@ -17,7 +17,9 @@ macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with lau
   `pnpm domain:build` (ts-rs), never edited by hand.
 - `~/.claude-jobs` is the data folder and its format is shared with `~/.claude-jobs/claude_jobs.py`: keep field names
   and the run id format (`YYYYMMDDTHHMMSSZ`) compatible.
-- Before committing: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:rust`.
+- Before committing: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:rust`. `.github/workflows/ci.yml` runs them
+  on each pull request, and fails when `src/domain` is not what `pnpm domain:build` writes. `pnpm test:rust` rewrites
+  `src/domain` unformatted: run `pnpm lint` after it, or `pnpm domain:build`, before committing.
 - A dev build (`debug_assertions`) must never rewrite the launchd files: they would point at `target/debug`.
 - A dev build never checks for or installs an update. To release, bump `version` in `package.json` and merge to main:
   `.github/workflows/release.yml` runs `pnpm release` for a version with no release yet. `pnpm release --dry-run`
