@@ -3,17 +3,16 @@
 /**
  * How watching for a job's event goes, for the window and `claude-jobs status`.
  */
-export type WatchStatus = {
-  /**
-   * The last check; none before the first.
-   */
-  checked_at: string | null
-  /**
-   * Why the last check failed; none when it worked.
-   */
-  problem: string | null
-  /**
-   * Pull requests found that wait for the job's current run to end.
-   */
-  pending: number
-}
+export type WatchStatus = { 
+/**
+ * The last check; none before the first.
+ */
+checked_at: string | null, 
+/**
+ * Why the last check failed; none when it worked.
+ */
+problem: string | null, 
+/**
+ * Pull requests found that wait for the job's current run to end.
+ */
+pending: number, };

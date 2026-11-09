@@ -3,18 +3,16 @@
 /**
  * A repository your GitHub account can see, for the editor's picker.
  */
-export type Repo = {
-  /**
-   * `owner/name`
-   */
-  name: string
-  private: boolean
-  /**
-   * When it was last pushed to: the list is newest first.
-   */
-  pushed_at: string | null
-  /**
-   * The picture of its owner, a user or an organization, on GitHub's avatar server.
-   */
-  owner_avatar: string | null
-}
+export type Repo = { 
+/**
+ * `owner/name`
+ */
+name: string, private: boolean, 
+/**
+ * When it was last pushed to: the list is newest first.
+ */
+pushed_at: string | null, 
+/**
+ * The picture of its owner, a user or an organization, on GitHub's avatar server.
+ */
+owner_avatar: string | null, };

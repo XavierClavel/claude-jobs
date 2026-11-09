@@ -33,7 +33,9 @@ export function Overview({
   onSelect: (id: string) => void
   onOpenRun: (job: string, run: string) => void
 }) {
-  const running = jobs.filter(isRunning)
+  const running = jobs.flatMap((job) =>
+    isRunning(job) && job.last_run ? [{ job, started: job.last_run.started_at }] : [],
+  )
   const waiting = jobs.filter((j) => j.waiting)
   const scheduled = jobs.filter((j) => j.enabled).length
   const paused = jobs.length - scheduled
@@ -70,20 +72,24 @@ export function Overview({
         ) : (
           <>
             <div className="stats">
-              {running[0]?.last_run ? (
-                <button
-                  type="button"
-                  className="stat stat-running"
-                  onClick={() => running[0] && onSelect(running[0].id)}
-                >
-                  <span className="stat-value">
-                    {running.length} running <Elapsed since={running[0].last_run.started_at} />
-                  </span>
-                  <span className="stat-key">
-                    {running.map((j) => j.name).join(', ')}, since{' '}
-                    {timeOf(running[0].last_run.started_at)}
-                  </span>
-                </button>
+              {running.length ? (
+                <section className="stat stat-running" aria-label="Running">
+                  <span className="stat-value">{running.length} running</span>
+                  <div className="running-list">
+                    {running.map(({ job, started }) => (
+                      <button
+                        type="button"
+                        key={job.id}
+                        className="running-row"
+                        onClick={() => onSelect(job.id)}
+                      >
+                        <span className="running-name">{job.name}</span>
+                        <span className="running-since">since {timeOf(started)}</span>
+                        <Elapsed since={started} />
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ) : (
                 <div className="stat">
                   <span className="stat-value">Nothing running</span>
