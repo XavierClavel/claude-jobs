@@ -1,7 +1,8 @@
 //! An interactive run: a real Claude Code session in tmux, for tools a headless `claude -p` does not get (the
 //! Artifact tools). A Stop hook tells the runner when Claude has finished; the runner then closes the session and
-//! reads the result and cost from the session transcript. A StopFailure hook tells it when the turn ended on an API
-//! error instead, after which the session would only wait for someone to type.
+//! reads the result and cost from the session transcript. A Stop that lists a background command still running is
+//! Claude waiting for it, not finishing, and the runner waits for the next one. A StopFailure hook tells it when the
+//! turn ended on an API error instead, after which the session would only wait for someone to type.
 
 use crate::jobs::Job;
 use crate::runner::{self, Outcome};
@@ -109,7 +110,9 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
     let opened = Instant::now();
     let deadline = opened + Duration::from_secs(u64::from(job.timeout_minutes) * 60);
     let end = loop {
-        if let Some(stop) = read_marker(&marker) {
+        // A Stop that leaves a background command running is Claude waiting for it, not finishing: the command's
+        // notice starts the next turn, whose Stop writes the marker again.
+        if let Some(stop) = read_marker(&marker).filter(|stop| running_tasks(stop).is_empty()) {
             break End::Stopped(stop);
         }
         if let Some(error) = read_marker(&failure) {
@@ -166,11 +169,20 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
         }
         End::TimedOut => {
             rec.status = RunStatus::Timeout;
-            rec.error = Some(format!(
-                "stopped after {} minutes: Claude never finished, often a permission prompt for a tool that is not \
-                 in the allowed list. The last screen is in the run's output.",
-                job.timeout_minutes
-            ));
+            let waiting = read_marker(&marker).map(|stop| running_tasks(&stop)).unwrap_or_default();
+            rec.error = Some(if waiting.is_empty() {
+                format!(
+                    "stopped after {} minutes: Claude never finished, often a permission prompt for a tool that is \
+                     not in the allowed list. The last screen is in the run's output.",
+                    job.timeout_minutes
+                )
+            } else {
+                format!(
+                    "stopped after {} minutes: Claude was still waiting for a background command ({}).",
+                    job.timeout_minutes,
+                    waiting.join("; ")
+                )
+            });
         }
         End::Closed => {
             rec.status = RunStatus::Failed;
@@ -189,6 +201,18 @@ fn api_error(error: &serde_json::Value) -> String {
         Some(details) => format!("Claude stopped on an API error ({kind}): {details}"),
         None => format!("Claude stopped on an API error ({kind}). Its last screen is in the run's output."),
     }
+}
+
+/// The background tasks a Stop says are still running, by description: what Claude ended its turn to wait for.
+fn running_tasks(stop: &serde_json::Value) -> Vec<String> {
+    let tasks = stop.get("background_tasks").and_then(|t| t.as_array()).into_iter().flatten();
+    tasks
+        .filter(|task| task.get("status").and_then(|s| s.as_str()) == Some("running"))
+        .map(|task| {
+            let label = ["description", "command", "id"].iter().find_map(|key| task.get(*key).and_then(|v| v.as_str()));
+            label.unwrap_or("a background task").to_string()
+        })
+        .collect()
 }
 
 fn read_marker(path: &Path) -> Option<serde_json::Value> {
@@ -283,6 +307,24 @@ mod tests {
             "error_details": "Usage limit reached until 14:00"});
         assert_eq!(api_error(&error), "Claude stopped on an API error (rate_limit): Usage limit reached until 14:00");
         assert!(api_error(&serde_json::json!({})).starts_with("Claude stopped on an API error (unknown)."));
+    }
+
+    #[test]
+    fn a_stop_waiting_on_a_background_command_is_not_the_end() {
+        // What the Stop hook got when the photobook monitor ended its turn to wait for collect.py.
+        let collect = serde_json::json!({"id": "b1", "type": "shell", "status": "running",
+            "description": "Run the photobook collect script"});
+        let folder = serde_json::json!({"id": "b2", "type": "shell", "status": "completed",
+            "description": "Create run folder"});
+        let waiting = serde_json::json!({"hook_event_name": "Stop", "last_assistant_message": "Waiting for collect.py.",
+            "background_tasks": [collect, folder]});
+        assert_eq!(running_tasks(&waiting), ["Run the photobook collect script"]);
+
+        let finished = serde_json::json!({"hook_event_name": "Stop", "background_tasks": [folder]});
+        assert!(running_tasks(&finished).is_empty());
+        assert!(running_tasks(&serde_json::json!({"hook_event_name": "Stop"})).is_empty());
+        let unnamed = serde_json::json!({"background_tasks": [{"status": "running"}]});
+        assert_eq!(running_tasks(&unnamed), ["a background task"]);
     }
 
     #[test]

@@ -273,7 +273,9 @@ pnpm release            # publish package.json's version as a GitHub release (se
 A headless `claude -p` session has no Artifact tools. A job marked **Interactive session** runs a real Claude Code
 session instead, in its own tmux server (`tmux -L claude-jobs`, so it never mixes with yours). A Stop hook passed
 with `--settings` tells the runner when Claude has finished; the runner then sends `/exit` and reads the result,
-turns and cost from the session transcript. While it runs, **Watch** opens Terminal on the session, or brings forward the Terminal tab already showing it (macOS
+turns and cost from the session transcript. Claude also ends a turn to wait for a command it ran in the background;
+that Stop lists the command as still running, so the runner keeps waiting (within the job's timeout) for the turn
+the command's end starts. While it runs, **Watch** opens Terminal on the session, or brings forward the Terminal tab already showing it (macOS
 asks once to let Claude Jobs control Terminal; without that, it opens a new window). Needs
 tmux: the editor installs it with Homebrew when it is missing, and refuses an interactive job without it.
 
