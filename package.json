@@ -1,7 +1,7 @@
 {
   "name": "claude-jobs",
   "private": true,
-  "version": "0.9.1",
+  "version": "0.9.2",
   "type": "module",
   "packageManager": "pnpm@11.0.7",
   "scripts": {

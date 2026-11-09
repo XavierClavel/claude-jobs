@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// A tmux server of its own, so job sessions never mix with the user's.
 pub const SOCKET: &str = "claude-jobs";
@@ -140,13 +140,7 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
 
     match end {
         End::Stopped(stop) => {
-            rec.session_id = stop.get("session_id").and_then(|v| v.as_str()).map(str::to_string);
-            if let Some(transcript) = stop.get("transcript_path").and_then(|v| v.as_str()) {
-                let summary = read_transcript(Path::new(transcript));
-                rec.result = summary.result;
-                rec.num_turns = Some(summary.turns);
-                rec.cost_usd = summary.cost_usd;
-            }
+            rec.result = read_session(&stop, rec);
             rec.status = RunStatus::Ok;
             runner::apply_verdict(rec);
         }
@@ -169,7 +163,11 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
         }
         End::TimedOut => {
             rec.status = RunStatus::Timeout;
-            let waiting = read_marker(&marker).map(|stop| running_tasks(&stop)).unwrap_or_default();
+            // An earlier Stop still names the session, and what it spent until the timeout.
+            if let Some(stop) = read_marker(&marker) {
+                read_session(&stop, rec);
+            }
+            let waiting = still_waiting_for(&marker);
             rec.error = Some(if waiting.is_empty() {
                 format!(
                     "stopped after {} minutes: Claude never finished, often a permission prompt for a tool that is \
@@ -201,6 +199,41 @@ fn api_error(error: &serde_json::Value) -> String {
         Some(details) => format!("Claude stopped on an API error ({kind}): {details}"),
         None => format!("Claude stopped on an API error ({kind}). Its last screen is in the run's output."),
     }
+}
+
+/// The session id, turns and cost of the session a Stop names; returns the last thing Claude said.
+fn read_session(stop: &serde_json::Value, rec: &mut RunRecord) -> Option<String> {
+    rec.session_id = stop.get("session_id").and_then(|v| v.as_str()).map(str::to_string);
+    let summary = read_transcript(Path::new(stop.get("transcript_path").and_then(|v| v.as_str())?));
+    rec.num_turns = Some(summary.turns);
+    rec.cost_usd = summary.cost_usd;
+    summary.result
+}
+
+/// What the last Stop says Claude was waiting for, unless Claude has replied since: the command's end then started
+/// another turn, and Claude was working, not waiting, when the run timed out.
+fn still_waiting_for(marker: &Path) -> Vec<String> {
+    let Some(stop) = read_marker(marker) else { return vec![] };
+    let transcript = stop.get("transcript_path").and_then(|v| v.as_str()).map(Path::new);
+    let stopped_at = fs::metadata(marker).and_then(|m| m.modified()).ok();
+    match (transcript, stopped_at) {
+        (Some(transcript), Some(stopped_at)) if replied_since(transcript, stopped_at) => vec![],
+        _ => running_tasks(&stop),
+    }
+}
+
+/// Whether the transcript has a reply from Claude written after `since`.
+fn replied_since(transcript: &Path, since: SystemTime) -> bool {
+    let since = chrono::DateTime::<chrono::Utc>::from(since);
+    let Ok(text) = fs::read_to_string(transcript) else { return false };
+    text.lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).any(|entry| {
+        entry.get("type").and_then(|t| t.as_str()) == Some("assistant")
+            && entry
+                .get("timestamp")
+                .and_then(|t| t.as_str())
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                .is_some_and(|t| t > since)
+    })
 }
 
 /// The background tasks a Stop says are still running, by description: what Claude ended its turn to wait for.
@@ -325,6 +358,28 @@ mod tests {
         assert!(running_tasks(&serde_json::json!({"hook_event_name": "Stop"})).is_empty());
         let unnamed = serde_json::json!({"background_tasks": [{"status": "running"}]});
         assert_eq!(running_tasks(&unnamed), ["a background task"]);
+    }
+
+    #[test]
+    fn a_timeout_blames_the_background_command_only_while_claude_waits_for_it() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let transcript = dir.path().join("t.jsonl");
+        let marker = dir.path().join("run.done");
+        let stop = serde_json::json!({"hook_event_name": "Stop", "transcript_path": transcript,
+            "background_tasks": [{"status": "running", "description": "Run the photobook collect script"}]});
+        fs::write(&marker, stop.to_string()).expect("write marker");
+
+        // Claude's last reply is the one before the Stop: it is still waiting.
+        let before = r#"{"type":"assistant","timestamp":"2020-01-01T00:00:00Z","message":{"content":[]}}"#;
+        fs::write(&transcript, before).expect("write transcript");
+        assert_eq!(still_waiting_for(&marker), ["Run the photobook collect script"]);
+
+        // The command's end started another turn, and Claude replied: it was working when the run timed out.
+        let after = r#"{"type":"assistant","timestamp":"2100-01-01T00:00:00Z","message":{"content":[]}}"#;
+        fs::write(&transcript, format!("{before}\n{after}")).expect("write transcript");
+        assert!(still_waiting_for(&marker).is_empty());
+
+        assert!(still_waiting_for(&dir.path().join("none.done")).is_empty());
     }
 
     #[test]
