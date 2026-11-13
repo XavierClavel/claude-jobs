@@ -9,10 +9,9 @@ vi.mock('../api', () => ({
 
 describe('CronField', () => {
   it('lists the next runs of an expression that reads', async () => {
-    vi.mocked(api.cronPreview).mockResolvedValue([
-      '2026-11-16T09:00:00+01:00',
-      '2026-11-16T09:15:00+01:00',
-    ])
+    // Local times, so the test reads the same in any time zone.
+    const at = (h: number, m: number) => new Date(2026, 10, 16, h, m).toISOString()
+    vi.mocked(api.cronPreview).mockResolvedValue([at(9, 0), at(9, 15)])
     render(<CronField value="*/15 9-17 * * 1-5" onChange={() => {}} />)
     expect(await screen.findByLabelText('Next runs')).toHaveTextContent(/09:00 · .+09:15$/)
   })
