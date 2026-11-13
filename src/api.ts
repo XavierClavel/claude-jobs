@@ -22,6 +22,7 @@ export const api = {
   listJobs: () => invoke<JobView[]>('list_jobs'),
   defaults: () => invoke<Defaults>('defaults'),
   saveJob: (job: Job, editing: string | null) => invoke<JobView>('save_job', { job, editing }),
+  cronPreview: (expression: string) => invoke<string[]>('cron_preview', { expression }),
   deleteJob: (id: string) => invoke<void>('delete_job', { id }),
   setEnabled: (id: string, enabled: boolean) => invoke<JobView>('set_enabled', { id, enabled }),
   runNow: (id: string) => invoke<void>('run_now', { id }),

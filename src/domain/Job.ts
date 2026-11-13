@@ -21,6 +21,11 @@ export type Job = {
    * A month shorter than one of `month_days` runs on its last day instead: a job on the 31st runs on 30 April.
    */
   last_day_fallback: boolean
+  /**
+   * A cron expression, such as `0,30 9-17 * * 1-5`, for times the days cannot say. When there is one, it is the
+   * schedule: `hour`, `minute` and the days are kept but unused. See `cron`.
+   */
+  cron: string | null
   cwd: string
   allowed_tools: Array<string>
   model: string

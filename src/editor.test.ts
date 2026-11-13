@@ -91,6 +91,37 @@ describe('editor drafts', () => {
   })
 })
 
+describe('cron jobs', () => {
+  const draft = toDraft(null, defaults)
+
+  it('starts a cron expression from the schedule picked so far', () => {
+    expect(withRepeat(draft, 'cron')).toMatchObject({ repeat: 'cron', cron: '0 9 * * *' })
+    const weekly = { ...draft, repeat: 'weekly' as const, time: '18:30', weekdays: [7, 1, 5] }
+    expect(withRepeat(weekly, 'cron').cron).toBe('30 18 * * 0,1,5')
+    const monthly = { ...draft, repeat: 'monthly' as const, time: '08:05', monthDays: [15, 1] }
+    expect(withRepeat(monthly, 'cron').cron).toBe('5 8 1,15 * *')
+    // One already typed stays.
+    expect(withRepeat({ ...draft, cron: '*/5 * * * *' }, 'cron').cron).toBe('*/5 * * * *')
+  })
+
+  it('sends the expression only while Cron is picked', () => {
+    const cron = { ...draft, repeat: 'cron' as const, cron: ' */15 9-17 * * 1-5 ', weekdays: [1] }
+    expect(toJob(cron)).toMatchObject({ cron: '*/15 9-17 * * 1-5', weekdays: [], month_days: [] })
+    expect(toJob({ ...cron, repeat: 'daily' }).cron).toBeNull()
+    expect(toDraft(toJob(cron), defaults)).toMatchObject({
+      repeat: 'cron',
+      cron: '*/15 9-17 * * 1-5',
+    })
+  })
+
+  it('wants an expression', () => {
+    expect(draftErrors({ ...draft, repeat: 'cron', cron: '  ' })).toEqual([
+      'Enter a cron expression.',
+    ])
+    expect(draftErrors({ ...draft, repeat: 'cron', cron: '0 9 * * *' })).toEqual([])
+  })
+})
+
 describe('pull request jobs', () => {
   const watching = {
     ...toDraft(null, defaults),

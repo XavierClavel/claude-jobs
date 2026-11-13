@@ -53,8 +53,8 @@ pub fn status() -> i32 {
 }
 
 /// `claude-jobs save`: creates or changes a job from JSON on stdin, like **Save** in the editor, and prints it the way
-/// `status` lists it. A new job needs `id`, `name`, `prompt`, and `hour` and `minute` unless a trigger starts it
-/// (`event`), and gets the editor's defaults for the rest. For an existing id, the fields given replace the job's and
+/// `status` lists it. A new job needs `id`, `name`, `prompt`, and `hour` and `minute` unless a trigger (`event`) or a
+/// cron expression (`cron`) starts it, and gets the editor's defaults for the rest. For an existing id, the fields given replace the job's and
 /// the others stay as they are.
 pub fn save() -> i32 {
     let mut input = String::new();
@@ -85,8 +85,9 @@ fn job_from_input(input: &str, existing: &[Job]) -> Result<(Job, Option<String>)
         None => serde_json::Map::new(),
     };
     merged.extend(fields.clone());
-    // A job a trigger starts never uses its time, but jobs.json keeps one: the editor's.
-    if merged.get("event").is_some_and(|e| !e.is_null()) {
+    // A job a trigger or a cron expression starts never uses its time, but jobs.json keeps one: the editor's.
+    let has_cron = merged.get("cron").and_then(Value::as_str).is_some_and(|c| !c.trim().is_empty());
+    if has_cron || merged.get("event").is_some_and(|e| !e.is_null()) {
         merged.entry("hour").or_insert(9.into());
         merged.entry("minute").or_insert(0.into());
     }
@@ -237,6 +238,28 @@ mod tests {
         assert!(job_from_input(r#"{"id": "j", "name": "J", "prompt": "/j"}"#, &[]).unwrap_err().contains("hour"));
         let unknown = r#"{"id": "j", "name": "J", "prompt": "/j", "event": {"kind": "issue_opened", "repos": []}}"#;
         assert!(job_from_input(unknown, &[]).unwrap_err().contains("issue_opened"));
+    }
+
+    #[test]
+    fn save_puts_a_job_on_a_cron_schedule_and_back() {
+        let input = r#"{"id": "j", "name": "J", "prompt": "/j", "cron": "*/15 9-17 * * 1-5"}"#;
+        let (job, _) = job_from_input(input, &[]).expect("valid");
+        // No time needed: the expression has it.
+        assert_eq!((job.cron.as_deref(), job.hour, job.minute), (Some("*/15 9-17 * * 1-5"), 9, 0));
+        let (back, _) = job_from_input(r#"{"id": "j", "cron": null, "hour": 7}"#, &[job]).expect("valid");
+        assert_eq!((back.cron, back.hour), (None, 7));
+        // An empty expression is no expression, so a new job needs its time again.
+        let empty = r#"{"id": "j", "name": "J", "prompt": "/j", "cron": ""}"#;
+        assert!(job_from_input(empty, &[]).unwrap_err().contains("hour"));
+    }
+
+    #[test]
+    fn status_lists_a_cron_job_with_its_expression() {
+        let job: Job = serde_json::from_str(r#"{"id": "j", "name": "J", "prompt": "/j", "hour": 9, "minute": 0}"#)
+            .expect("parses");
+        assert_eq!(serde_json::to_value(&job).expect("serializes")["cron"], Value::Null);
+        let cron = Job { cron: Some("0 9 * * 1-5".into()), ..job };
+        assert_eq!(serde_json::to_value(&cron).expect("serializes")["cron"], "0 9 * * 1-5");
     }
 
     #[test]

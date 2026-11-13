@@ -82,9 +82,11 @@ export function triggerText(event: NonNullable<Job['event']>): string {
 export function scheduleText(
   job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days' | 'last_day_fallback'> & {
     event?: Job['event']
+    cron?: Job['cron']
   },
 ): string {
   if (job.event) return `${triggerText(job.event)} in ${orList(job.event.repos)}`
+  if (job.cron) return `Cron ${job.cron}`
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) {
     const shorter = job.last_day_fallback ? ', or the last day of shorter months' : ''
@@ -95,13 +97,17 @@ export function scheduleText(
 }
 
 // The schedule in a few words, for the list of jobs: "Daily 06:00", "On PR opened" for a trigger, "Weekly Mon 09:00" for one day a week,
-// "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00".
+// "Mon, Wed, Fri 09:00", "Monthly 1st, 15th 08:00", "Cron */15 9-17 * * 1-5".
 export function scheduleShort(
-  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'> & { event?: Job['event'] },
+  job: Pick<Job, 'hour' | 'minute' | 'weekdays' | 'month_days'> & {
+    event?: Job['event']
+    cron?: Job['cron']
+  },
 ): string {
   if (job.event) {
     return job.event.kind === 'pull_request_merged' ? 'On PR merged' : 'On PR opened'
   }
+  if (job.cron) return `Cron ${job.cron}`
   const time = clock(job.hour, job.minute)
   if (job.month_days.length) return `Monthly ${job.month_days.map(ordinal).join(', ')} ${time}`
   if (!job.weekdays.length) return `Daily ${time}`

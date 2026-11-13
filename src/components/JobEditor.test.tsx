@@ -8,6 +8,9 @@ vi.mock('../api', () => ({
   api: {
     saveJob: vi.fn(),
     saveAction: vi.fn(),
+    cronPreview: vi.fn(() =>
+      Promise.resolve(['2026-11-16T09:00:00+01:00', '2026-11-16T09:15:00+01:00']),
+    ),
     listSkills: vi.fn(() => Promise.resolve([])),
     listRepos: vi.fn(() =>
       Promise.resolve([
@@ -134,6 +137,35 @@ describe('JobEditor', () => {
       expect.objectContaining({ month_days: [1, 31], last_day_fallback: true }),
       null,
     )
+  })
+
+  it('saves a job on a cron expression, started from the schedule picked so far', async () => {
+    await newJob()
+    await userEvent.click(screen.getByRole('radio', { name: 'Weekly' }))
+    await userEvent.click(screen.getByLabelText('Fri'))
+    await userEvent.click(screen.getByRole('radio', { name: 'Cron' }))
+    // The expression holds the time: no time field.
+    expect(screen.queryByLabelText('Time')).not.toBeInTheDocument()
+    const field = screen.getByLabelText('Cron expression')
+    expect(field).toHaveValue('0 9 * * 1,5')
+    await userEvent.clear(field)
+    await userEvent.type(field, '*/15 9-17 * * 1-5')
+    await waitFor(() => expect(api.cronPreview).toHaveBeenLastCalledWith('*/15 9-17 * * 1-5'))
+    expect(await screen.findByLabelText('Next runs')).toHaveTextContent(/^Next: .+ · .+$/)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenCalledWith(
+      expect.objectContaining({ cron: '*/15 9-17 * * 1-5', weekdays: [], month_days: [] }),
+      null,
+    )
+  })
+
+  it('wants a cron expression before saving', async () => {
+    await newJob()
+    await userEvent.click(screen.getByRole('radio', { name: 'Cron' }))
+    await userEvent.clear(screen.getByLabelText('Cron expression'))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a cron expression.')
+    expect(api.saveJob).not.toHaveBeenCalled()
   })
 
   it('has no catch-up option: every job catches up', async () => {

@@ -85,10 +85,12 @@ pub fn run_job(job_id: &str, trigger: Trigger, pull_request: Option<PullRequest>
         eprintln!("{job_id} is already running");
         return 3;
     }
-    if trigger == Trigger::Schedule && job.last_day_fallback {
+    // launchd starts some jobs at times that are not theirs: on 28 February of a leap year, a job that falls back to
+    // the last day of shorter months, which launchd cannot tell apart from the last day of other Februaries; and a
+    // cron job, at the times its entries had to leave open (see `launchd::cron_entries`).
+    if trigger == Trigger::Schedule && (job.last_day_fallback || job.cron.is_some()) {
         let last = runs::list(job_id, 1).into_iter().next();
         let last_started = last.and_then(|r| DateTime::parse_from_rfc3339(&r.started_at).ok());
-        // 28 February of a leap year, which launchd cannot tell apart from the last day of other Februaries.
         if schedule::already_ran(&job, Local::now(), last_started) {
             eprintln!("{job_id}: its last scheduled time has already run");
             return 0;

@@ -116,6 +116,13 @@ describe('scheduleShort', () => {
       'Monthly 1st, 15th 08:00',
     )
   })
+
+  it('gives a cron expression as it is, whatever the time and days kept', () => {
+    const cron = { hour: 9, minute: 0, weekdays: [1], month_days: [], cron: '*/15 9-17 * * 1-5' }
+    expect(scheduleShort(cron)).toBe('Cron */15 9-17 * * 1-5')
+    expect(scheduleText({ ...cron, last_day_fallback: false })).toBe('Cron */15 9-17 * * 1-5')
+    expect(scheduleShort({ ...cron, cron: null })).toBe('Weekly Mon 09:00')
+  })
 })
 
 describe('day and when', () => {
