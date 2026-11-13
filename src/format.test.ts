@@ -154,6 +154,10 @@ describe('tally', () => {
       '1 timed out',
     ])
   })
+
+  it('counts warnings apart from the runs that worked', () => {
+    expect(tally(['ok', 'warning', 'warning'])).toEqual(['1 OK', '2 warnings'])
+  })
 })
 
 describe('pull request jobs', () => {

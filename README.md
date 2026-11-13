@@ -24,6 +24,11 @@ runs show as **Catch-up** in the history; what the agent did is in `logs/app.cat
 A run that fails or times out puts up an alert that stays on screen until you close it, with its error and an **Open
 Claude Jobs** button.
 
+A run can also end with a **Warning**: it worked, but something is worth a look, such as a data source that did not
+answer when there was nothing to do without it. Claude ends its answer with `RUN STATUS: WARNING` only when the job's
+prompt or skill says to report that case as a warning, so a job that does not ask for warnings never gets one. A warning
+puts up no alert, is not under **Needs attention**, and shows in the history in the warning colour.
+
 ## Cron
 
 For times the days cannot say, such as every 15 minutes during working hours, **Repeat → Cron** takes a cron
@@ -99,7 +104,8 @@ for the window and `claude-jobs status`; a waiting run always checks again.
 ## Actions
 
 A job can do something when a run ends: its **On success** actions when the run worked, its **On failure** actions when
-it failed or timed out, and its **On complete** actions either way (an interrupted run has no runner left to take
+it failed or timed out, only its **On complete** actions when it ended with a warning, and its **On complete** actions
+in every case (an interrupted run has no runner left to take
 them). Actions are made once, on the **Actions** page (**Manage**, under the conditions), and each job picks its own in
 the editor, under **When it ends**.
 
@@ -124,7 +130,7 @@ variables:
 | `summary`           | Text                  | How the run went, in a line: `✅ Photobook monitor finished · 2 min 3 s · $0.55`                      |
 | `result`            | Text                  | Claude's result, its Markdown written to read well in Slack and cut at 3,000 characters, or the error |
 | `job`               | Text                  | The job's name                                                                                        |
-| `status`            | Text                  | `OK`, `Failed` or `Timed out`                                                                         |
+| `status`            | Text                  | `OK`, `Warning`, `Failed` or `Timed out`                                                              |
 
 A message Claude sends during a run (see below) fills them too: `summary` is 💬 and the line Claude gave as its
 `summary`, or the job's name (`💬 Photobook monitor`) without one, `result` the message, written the same way, and

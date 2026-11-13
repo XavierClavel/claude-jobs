@@ -24,7 +24,8 @@ const WAIT_ALERT_AFTER: Duration = Duration::from_secs(120);
 /// A session that finishes is not a run that worked: Claude says which it was on the last line of its answer.
 pub const STATUS_INSTRUCTION: &str = "This is an unattended scheduled run that nobody watches. End your final \
 message with a line of its own: `RUN STATUS: FAILED` when the task could not be done (for example a data source, \
-credential or tool failed and you stopped), otherwise `RUN STATUS: OK`.";
+credential or tool failed and you stopped), `RUN STATUS: WARNING` only when the task's instructions say to report what \
+happened as a warning, otherwise `RUN STATUS: OK`.";
 const STATUS_PREFIX: &str = "RUN STATUS:";
 /// What makes Claude say what it is doing, which the window shows while the run goes on: see `mcp`.
 const PROGRESS_INSTRUCTION: &str = "Claude Jobs shows a line of what this run is doing, which you set with its \
@@ -44,27 +45,54 @@ pub enum Outcome {
     LoginExpired,
 }
 
-/// Removes the status line from Claude's answer and returns whether it reported a failure.
-fn split_status(result: &str) -> (String, bool) {
+/// Removes the status line from Claude's answer and returns the status it reported, if any other than OK.
+fn split_status(result: &str) -> (String, Option<RunStatus>) {
     let trimmed = result.trim_end();
     let (body, last) = trimmed.rsplit_once('\n').unwrap_or(("", trimmed));
     let last = last.trim().trim_matches('`').trim();
-    match last.strip_prefix(STATUS_PREFIX) {
-        Some(verdict) => (body.trim_end().to_string(), verdict.trim().eq_ignore_ascii_case("failed")),
-        None => (result.to_string(), false),
+    match last.strip_prefix(STATUS_PREFIX).map(str::trim) {
+        Some(verdict) => {
+            let status = if verdict.eq_ignore_ascii_case("failed") {
+                Some(RunStatus::Failed)
+            } else if verdict.eq_ignore_ascii_case("warning") {
+                Some(RunStatus::Warning)
+            } else {
+                None
+            };
+            (body.trim_end().to_string(), status)
+        }
+        None => (result.to_string(), None),
     }
 }
 
-/// Turns a finished run Claude reported as failed into a failed run, its first line as the error.
+/// Turns a finished run Claude reported as failed into a failed run, its first line as the error, and one it reported
+/// as a warning into a warning. Neither changes a run that did not finish well.
 pub fn apply_verdict(rec: &mut RunRecord) {
     let Some(result) = rec.result.take() else { return };
-    let (body, failed) = split_status(&result);
-    if failed && rec.status == RunStatus::Ok {
-        rec.status = RunStatus::Failed;
-        let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Claude reported a failure.");
-        rec.error = Some(first.to_string());
+    let (body, verdict) = split_status(&result);
+    if rec.status == RunStatus::Ok {
+        match verdict {
+            Some(RunStatus::Failed) => {
+                rec.status = RunStatus::Failed;
+                let first =
+                    body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Claude reported a failure.");
+                rec.error = Some(first.to_string());
+            }
+            Some(RunStatus::Warning) => rec.status = RunStatus::Warning,
+            _ => {}
+        }
     }
     rec.result = Some(body);
+}
+
+/// Whether a run that ended as `status` puts up an alert: not one that worked, with or without a warning.
+pub fn needs_alert(status: RunStatus) -> bool {
+    !matches!(status, RunStatus::Ok | RunStatus::Warning)
+}
+
+/// launchd's exit code for a run that ended as `status`: 0 when it worked, with or without a warning, else 1.
+pub fn exit_code(status: RunStatus) -> i32 {
+    if needs_alert(status) { 1 } else { 0 }
 }
 
 /// Exit codes for launchd's log: 0 ok, 1 the run failed, 2 no such job, 3 already running.
@@ -219,7 +247,7 @@ fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> O
     }
     let _ = runs::save(&rec);
     runs::prune(job_id);
-    if rec.status != RunStatus::Ok {
+    if needs_alert(rec.status) {
         let last_line = rec.error.as_deref().and_then(|e| e.lines().last()).unwrap_or("The run did not finish.");
         alert(&format!("Claude job failed: {}", job.name), last_line);
     }
@@ -234,7 +262,7 @@ fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> O
         }
         let _ = runs::save(&rec);
     }
-    Some(if rec.status == RunStatus::Ok { 0 } else { 1 })
+    Some(exit_code(rec.status))
 }
 
 /// Starts `run <job>` in its own process, detached from the caller, with the environment launchd gives the job.
@@ -371,7 +399,7 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
         return Ok(Outcome::LoginExpired);
     }
     apply_verdict(rec);
-    if rec.status != RunStatus::Ok && rec.error.is_none() {
+    if needs_alert(rec.status) && rec.error.is_none() {
         let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
         let stderr_tail: String = stderr.chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
         rec.error = Some(match (stderr_tail.trim(), rec.result.as_deref()) {
@@ -486,6 +514,40 @@ mod tests {
         assert_eq!(rec.status, RunStatus::Failed);
         assert_eq!(rec.error.as_deref(), Some("Nothing was updated this run."));
         assert_eq!(rec.result.as_deref(), Some("Nothing was updated this run.\n\nRun gcloud auth login."));
+    }
+
+    #[test]
+    fn a_run_claude_reports_as_a_warning_is_a_warning_with_no_error() {
+        let mut rec = finished("Calendar unreachable, nothing prepared.\n`RUN STATUS: WARNING`");
+        apply_verdict(&mut rec);
+        assert_eq!(rec.status, RunStatus::Warning);
+        assert_eq!(rec.result.as_deref(), Some("Calendar unreachable, nothing prepared."));
+        assert_eq!(rec.error, None);
+    }
+
+    #[test]
+    fn a_warning_does_not_hide_a_run_that_failed() {
+        let mut rec = finished("Crashed.\nRUN STATUS: WARNING");
+        rec.status = RunStatus::Failed;
+        apply_verdict(&mut rec);
+        assert_eq!(rec.status, RunStatus::Failed);
+    }
+
+    #[test]
+    fn a_warning_needs_no_alert_and_exits_zero() {
+        assert!(!needs_alert(RunStatus::Ok));
+        assert!(!needs_alert(RunStatus::Warning));
+        assert!(needs_alert(RunStatus::Failed));
+        assert!(needs_alert(RunStatus::Timeout));
+        assert_eq!(exit_code(RunStatus::Warning), 0);
+        assert_eq!(exit_code(RunStatus::Ok), 0);
+        assert_eq!(exit_code(RunStatus::Failed), 1);
+    }
+
+    #[test]
+    fn the_status_instruction_keeps_warnings_for_jobs_that_ask_for_them() {
+        assert!(STATUS_INSTRUCTION.contains("`RUN STATUS: WARNING`"));
+        assert!(STATUS_INSTRUCTION.contains("only when the task's instructions say"));
     }
 
     #[test]

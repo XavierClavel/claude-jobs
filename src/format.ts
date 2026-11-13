@@ -26,16 +26,20 @@ export function ordinal(day: number): string {
 export const STATUS_LABEL: Record<RunStatus, string> = {
   running: 'Running',
   ok: 'OK',
+  warning: 'Warning',
   failed: 'Failed',
   timeout: 'Timed out',
   interrupted: 'Interrupted',
 }
 
-// How runs went, counted: ["39 OK", "2 failed", "1 timed out"]. A run still going is left out.
+// How runs went, counted: ["39 OK", "3 warnings", "2 failed", "1 timed out"]. A run still going is left out.
 export function tally(statuses: RunStatus[]): string[] {
-  return (['ok', 'failed', 'timeout', 'interrupted'] as const).flatMap((status) => {
+  return (['ok', 'warning', 'failed', 'timeout', 'interrupted'] as const).flatMap((status) => {
     const n = statuses.filter((s) => s === status).length
-    return n ? [`${n} ${status === 'ok' ? 'OK' : STATUS_LABEL[status].toLowerCase()}`] : []
+    if (!n) return []
+    if (status === 'ok') return [`${n} OK`]
+    if (status === 'warning') return [`${n} warning${n > 1 ? 's' : ''}`]
+    return [`${n} ${STATUS_LABEL[status].toLowerCase()}`]
   })
 }
 

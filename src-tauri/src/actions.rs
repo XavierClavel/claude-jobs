@@ -326,6 +326,7 @@ pub fn unknown_in<'a>(uses: impl IntoIterator<Item = &'a ActionUse>, actions: &[
 pub fn for_outcome(job: &Job, status: RunStatus) -> Vec<ActionUse> {
     let outcome = match status {
         RunStatus::Ok => &job.on_success,
+        RunStatus::Warning => &Vec::new(),
         RunStatus::Failed | RunStatus::Timeout => &job.on_failure,
         RunStatus::Running | RunStatus::Interrupted => return vec![],
     };
@@ -412,7 +413,7 @@ pub fn send(action: &Action, recipient: Option<&Recipient>, message: &Message) -
 pub struct Message {
     /// The job's name.
     pub job: String,
-    /// `OK`, `Failed` or `Timed out`, as the window says it; `Running` for a message Claude sends during the run.
+    /// `OK`, `Warning`, `Failed` or `Timed out`, as the window says it; `Running` for a message Claude sends during the run.
     pub status: String,
     /// How the run went, in a line: its job, its duration, its cost.
     pub summary: String,
@@ -424,6 +425,7 @@ impl Message {
     pub fn for_run(job: &Job, rec: &RunRecord) -> Message {
         let (icon, outcome, status) = match rec.status {
             RunStatus::Ok => ("✅", "finished", "OK"),
+            RunStatus::Warning => ("⚠️", "finished with a warning", "Warning"),
             RunStatus::Timeout => ("⏳", "timed out", "Timed out"),
             _ => ("❌", "failed", "Failed"),
         };
@@ -445,7 +447,7 @@ impl Message {
                 let (short, cut) = shortened(result);
                 (slack_text(short), cut)
             }
-            (None, Some(error)) if rec.status != RunStatus::Ok => {
+            (None, Some(error)) if crate::runner::needs_alert(rec.status) => {
                 let (short, cut) = shortened(error);
                 (format!("```\n{short}\n```"), cut)
             }
@@ -815,6 +817,8 @@ mod tests {
         let failed = [used("slack", "ops"), used("slack", "me"), used("log", "me")];
         assert_eq!(for_outcome(&job, RunStatus::Failed), failed);
         assert_eq!(for_outcome(&job, RunStatus::Timeout), failed);
+        // A warning is neither a success nor a failure: only those on complete.
+        assert_eq!(for_outcome(&job, RunStatus::Warning), [used("slack", "me"), used("log", "me")]);
         assert!(for_outcome(&job, RunStatus::Interrupted).is_empty());
         assert!(for_outcome(&job, RunStatus::Running).is_empty());
     }
@@ -849,6 +853,9 @@ mod tests {
         assert_eq!((reported.status.as_str(), reported.result.as_str()), ("Failed", "BigQuery refused the query."));
         assert_eq!(reported.summary, "❌ Photobook monitor failed · 2 min 3 s · $0.55");
         assert_eq!(message("failed", None, Some("error: boom")).result, "```\nerror: boom\n```");
+        let warned = message("warning", Some("Calendar unreachable."), None);
+        assert_eq!((warned.status.as_str(), warned.result.as_str()), ("Warning", "Calendar unreachable."));
+        assert_eq!(warned.summary, "⚠️ Photobook monitor finished with a warning · 2 min 3 s · $0.55");
         let timeout = message("timeout", None, None);
         assert_eq!((timeout.status.as_str(), timeout.result.as_str()), ("Timed out", ""));
         assert_eq!(timeout.text(), "⏳ Photobook monitor timed out · 2 min 3 s · $0.55");

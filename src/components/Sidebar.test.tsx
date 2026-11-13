@@ -70,6 +70,28 @@ describe('Sidebar', () => {
     expect(row('Stuck orders')).toHaveTextContent(/Stuck orders[\d:]+ · Investigating logs…$/)
   })
 
+  it('shows a job whose last run ended with a warning in orange, with what happened', () => {
+    sidebar([
+      job({
+        id: 'w',
+        name: 'Meeting prep',
+        hour: 6,
+        last_run: run({ status: 'warning' }),
+        next_run: null,
+      }),
+      job({
+        id: 'o',
+        name: 'Daily digest',
+        hour: 7,
+        last_run: run({ status: 'ok' }),
+        next_run: null,
+      }),
+    ])
+    expect(row('Meeting prep')).toHaveTextContent('Daily 06:00 · last run with a warning')
+    expect(row('Meeting prep').querySelector('.dot')).toHaveClass('dot-warn')
+    expect(row('Daily digest').querySelector('.dot')).toHaveClass('dot-ok')
+  })
+
   it('selects the job clicked', async () => {
     const onSelect = vi.fn()
     sidebar([job()], signedIn, { onSelect })

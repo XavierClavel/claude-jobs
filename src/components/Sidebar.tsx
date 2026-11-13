@@ -39,6 +39,7 @@ export function JobLine({ job, checks }: { job: JobView; checks: Checks }) {
   if (job.watch?.problem) return <>{`${schedule} · cannot check GitHub`}</>
   if (last && failed(last.status))
     return <>{`${schedule} · last run ${STATUS_LABEL[last.status].toLowerCase()}`}</>
+  if (last?.status === 'warning') return <>{`${schedule} · last run with a warning`}</>
   if (!job.next_run) return <>{schedule}</>
   return <>{`${schedule} · next ${midSentence(day(job.next_run))}`}</>
 }

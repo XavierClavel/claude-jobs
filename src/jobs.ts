@@ -19,5 +19,6 @@ export function jobTone(job: JobView): Tone {
   if (!job.enabled) return 'muted'
   if (!job.loaded || unmetOf(job).length || job.watch?.problem) return 'warn'
   if (failed(job.last_run?.status)) return 'bad'
+  if (job.last_run?.status === 'warning') return 'warn'
   return 'ok'
 }

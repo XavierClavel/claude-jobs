@@ -22,6 +22,8 @@ const RUN_FILES: [&str; 8] =
 pub enum RunStatus {
     Running,
     Ok,
+    /// Done, with something the job's own instructions say to flag without alerting: a source that did not answer.
+    Warning,
     Failed,
     Timeout,
     Interrupted,

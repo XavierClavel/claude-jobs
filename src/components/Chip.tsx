@@ -5,6 +5,7 @@ export type Tone = 'ok' | 'bad' | 'running' | 'muted' | 'warn'
 
 export function runTone(status: RunStatus): Tone {
   if (status === 'ok') return 'ok'
+  if (status === 'warning') return 'warn'
   if (status === 'running') return 'running'
   return 'bad'
 }
