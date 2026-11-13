@@ -2,6 +2,7 @@ pub mod actions;
 pub mod cli;
 pub mod commands;
 pub mod conditions;
+pub mod cron;
 pub mod events;
 pub mod gcloud;
 pub mod interactive;
@@ -31,6 +32,7 @@ pub fn run() {
             commands::list_jobs,
             commands::defaults,
             commands::save_job,
+            commands::cron_preview,
             commands::delete_job,
             commands::set_enabled,
             commands::run_now,

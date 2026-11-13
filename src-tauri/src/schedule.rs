@@ -1,11 +1,14 @@
-//! When a job runs next, in local time, as launchd computes it from `StartCalendarInterval`. A job an event starts has
-//! no scheduled time.
+//! When a job runs next, in local time, as launchd computes it from `StartCalendarInterval`: at its time on its days,
+//! or at the times of its cron expression. A job an event starts has no scheduled time.
 
+use crate::cron::Cron;
 use crate::jobs::Job;
 use chrono::{DateTime, Datelike, Days, Local, NaiveDate, TimeZone};
 
 /// How many days to look ahead or back: a job on the 31st waits 61 days from 31 March to 31 May.
 const HORIZON_DAYS: u64 = 62;
+/// The same for a cron expression, which can name a day that comes once in years: 29 February waits up to 8.
+const CRON_HORIZON_DAYS: u64 = 366 * 8;
 
 fn is_last_day(day: NaiveDate) -> bool {
     day.succ_opt().map_or(true, |next| next.month() != day.month())
@@ -20,25 +23,72 @@ fn runs_on(job: &Job, day: NaiveDate) -> bool {
     job.weekdays.is_empty() || job.weekdays.contains(&(day.weekday().number_from_monday() as u8))
 }
 
-fn slot(job: &Job, day: NaiveDate) -> Option<DateTime<Local>> {
-    if job.event.is_some() || !runs_on(job, day) {
-        return None;
-    }
-    let at = day.and_hms_opt(job.hour.into(), job.minute.into(), 0)?;
+fn at(day: NaiveDate, hour: u8, minute: u8) -> Option<DateTime<Local>> {
+    let at = day.and_hms_opt(hour.into(), minute.into(), 0)?;
     // On the night clocks go forward, a time that does not exist moves to the next valid one.
     Local.from_local_datetime(&at).earliest()
+}
+
+/// What a job's times come from.
+enum Plan<'a> {
+    Days(&'a Job),
+    Cron(Cron),
+}
+
+impl Plan<'_> {
+    /// None for a job an event starts, or one whose cron expression no longer reads (jobs.json edited by hand).
+    fn of(job: &Job) -> Option<Plan<'_>> {
+        match (&job.event, &job.cron) {
+            (Some(_), _) => None,
+            (None, Some(expression)) => Cron::parse(expression).ok().map(Plan::Cron),
+            (None, None) => Some(Plan::Days(job)),
+        }
+    }
+
+    fn horizon(&self) -> u64 {
+        match self {
+            Plan::Days(_) => HORIZON_DAYS,
+            Plan::Cron(_) => CRON_HORIZON_DAYS,
+        }
+    }
+
+    /// The times on `day`, earliest first.
+    fn slots(&self, day: NaiveDate) -> Vec<DateTime<Local>> {
+        match self {
+            Plan::Days(job) if runs_on(job, day) => at(day, job.hour, job.minute).into_iter().collect(),
+            Plan::Cron(cron) if cron.runs_on(day) => cron.times().filter_map(|(h, m)| at(day, h, m)).collect(),
+            _ => vec![],
+        }
+    }
+
+    /// The times after `now`, earliest first.
+    fn after(&self, now: DateTime<Local>) -> impl Iterator<Item = DateTime<Local>> + '_ {
+        (0..=self.horizon())
+            .filter_map(move |o| now.date_naive().checked_add_days(Days::new(o)))
+            .flat_map(|day| self.slots(day))
+            .filter(move |t| *t > now)
+    }
 }
 
 pub fn next_run(job: &Job, now: DateTime<Local>) -> Option<DateTime<Local>> {
     if !job.enabled {
         return None;
     }
-    (0..=HORIZON_DAYS).filter_map(|o| slot(job, now.date_naive().checked_add_days(Days::new(o))?)).find(|t| *t > now)
+    Plan::of(job)?.after(now).next()
+}
+
+/// The next `count` times a cron expression runs, for the editor to show before the job is saved.
+pub fn cron_runs(cron: Cron, now: DateTime<Local>, count: usize) -> Vec<DateTime<Local>> {
+    Plan::Cron(cron).after(now).take(count).collect()
 }
 
 /// The last scheduled time at or before `now`.
 pub fn previous_run(job: &Job, now: DateTime<Local>) -> Option<DateTime<Local>> {
-    (0..=HORIZON_DAYS).filter_map(|o| slot(job, now.date_naive().checked_sub_days(Days::new(o))?)).find(|t| *t <= now)
+    let plan = Plan::of(job)?;
+    (0..=plan.horizon())
+        .filter_map(|o| now.date_naive().checked_sub_days(Days::new(o)))
+        .flat_map(|day| plan.slots(day).into_iter().rev())
+        .find(|t| *t <= now)
 }
 
 /// The scheduled time to catch up at login, if nothing ran since that time, however long ago it was.
@@ -77,6 +127,7 @@ mod tests {
             weekdays,
             month_days: vec![],
             last_day_fallback: false,
+            cron: None,
             cwd: String::new(),
             allowed_tools: vec![],
             model: String::new(),
@@ -236,6 +287,62 @@ mod tests {
         let now = at(2026, 10, 27, 9, 16);
         assert_eq!((next_run(&watching, now), previous_run(&watching, now)), (None, None));
         assert_eq!(missed_run(&watching, now, None::<DateTime<Local>>), None);
+    }
+
+    fn cron(expression: &str) -> Job {
+        Job { cron: Some(expression.into()), ..job(9, 0, vec![]) }
+    }
+
+    #[test]
+    fn a_cron_job_runs_at_its_times_not_its_hour() {
+        // 2026-11-13 is a Friday.
+        let quarters = cron("*/15 9-17 * * 1-5");
+        assert_eq!(next_run(&quarters, at(2026, 11, 13, 9, 7)), Some(at(2026, 11, 13, 9, 15)));
+        assert_eq!(next_run(&quarters, at(2026, 11, 13, 9, 15)), Some(at(2026, 11, 13, 9, 30)));
+        // After 17:45 on Friday, Monday at 09:00.
+        assert_eq!(next_run(&quarters, at(2026, 11, 13, 17, 45)), Some(at(2026, 11, 16, 9, 0)));
+        assert_eq!(previous_run(&quarters, at(2026, 11, 16, 8, 0)), Some(at(2026, 11, 13, 17, 45)));
+        assert_eq!(previous_run(&quarters, at(2026, 11, 13, 9, 15)), Some(at(2026, 11, 13, 9, 15)));
+    }
+
+    #[test]
+    fn a_cron_job_can_wait_years() {
+        let leap_day = cron("30 6 29 2 *");
+        assert_eq!(next_run(&leap_day, at(2026, 11, 13, 9, 0)), Some(at(2028, 2, 29, 6, 30)));
+        assert_eq!(previous_run(&leap_day, at(2026, 11, 13, 9, 0)), Some(at(2024, 2, 29, 6, 30)));
+    }
+
+    #[test]
+    fn a_cron_job_runs_on_the_first_or_on_mondays() {
+        // crontab(5): with both days restricted, either one.
+        let either = cron("0 9 1 * 1");
+        assert_eq!(next_run(&either, at(2026, 11, 13, 9, 0)), Some(at(2026, 11, 16, 9, 0)));
+        assert_eq!(next_run(&either, at(2026, 11, 30, 9, 0)), Some(at(2026, 12, 1, 9, 0)));
+    }
+
+    #[test]
+    fn a_cron_job_catches_up_like_the_others() {
+        let daily = cron("0 9 * * *");
+        let missed = missed_run(&daily, at(2026, 10, 27, 9, 16), Some(at(2026, 10, 26, 9, 0)));
+        assert_eq!(missed, Some(at(2026, 10, 27, 9, 0)));
+        // Every hour: the 10:00 run comes later today.
+        let hourly = cron("0 * * * *");
+        assert_eq!(missed_run(&hourly, at(2026, 10, 27, 9, 16), Some(at(2026, 10, 26, 9, 0))), None);
+        assert!(already_ran(&hourly, at(2026, 10, 27, 9, 30), Some(at(2026, 10, 27, 9, 0))));
+        assert!(!already_ran(&hourly, at(2026, 10, 27, 10, 0), Some(at(2026, 10, 27, 9, 0))));
+    }
+
+    #[test]
+    fn a_cron_expression_that_no_longer_reads_has_no_time() {
+        let broken = cron("every day");
+        let now = at(2026, 10, 27, 9, 16);
+        assert_eq!((next_run(&broken, now), previous_run(&broken, now)), (None, None));
+    }
+
+    #[test]
+    fn the_editor_sees_the_next_cron_runs() {
+        let runs = cron_runs(Cron::parse("0 9,17 * * *").expect("valid"), at(2026, 11, 13, 12, 0), 3);
+        assert_eq!(runs, vec![at(2026, 11, 13, 17, 0), at(2026, 11, 14, 9, 0), at(2026, 11, 14, 17, 0)]);
     }
 
     #[test]

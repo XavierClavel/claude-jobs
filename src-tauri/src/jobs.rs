@@ -2,6 +2,7 @@
 
 use crate::actions::ActionUse;
 use crate::conditions::CLAUDE;
+use crate::cron::Cron;
 use crate::events::{self, Event};
 use crate::paths;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,10 @@ pub struct Job {
     /// A month shorter than one of `month_days` runs on its last day instead: a job on the 31st runs on 30 April.
     #[serde(default)]
     pub last_day_fallback: bool,
+    /// A cron expression, such as `0,30 9-17 * * 1-5`, for times the days cannot say. When there is one, it is the
+    /// schedule: `hour`, `minute` and the days are kept but unused. See `cron`.
+    #[serde(default)]
+    pub cron: Option<String>,
     #[serde(default)]
     pub cwd: String,
     #[serde(default)]
@@ -242,6 +247,11 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
     }
     // Only a day after the 28th can be missing from a month.
     job.last_day_fallback &= job.month_days.iter().any(|&d| d > 28);
+    // An empty expression is no expression: the job runs at its time on its days.
+    job.cron = job.cron.map(|c| c.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|c| !c.is_empty());
+    if let Some(Err(e)) = job.cron.as_deref().map(Cron::parse) {
+        errors.push(e);
+    }
     if !(1..=240).contains(&job.timeout_minutes) {
         errors.push("Timeout must be 1 to 240 minutes.".to_string());
     }
@@ -307,6 +317,7 @@ mod tests {
             weekdays: vec![],
             month_days: vec![],
             last_day_fallback: false,
+            cron: None,
             cwd: "/tmp".into(),
             allowed_tools: vec![" Read ".into(), "".into()],
             model: "".into(),
@@ -371,6 +382,16 @@ mod tests {
         let errors = validate(input, &[], None).unwrap_err();
         assert!(errors.iter().any(|e| e.contains("1 to 31")));
         assert!(errors.iter().any(|e| e.contains("not both")));
+    }
+
+    #[test]
+    fn validate_tidies_a_cron_expression_and_refuses_a_wrong_one() {
+        let input = Job { cron: Some("  */15  9-17 * *\t1-5 ".into()), ..job("cron") };
+        assert_eq!(validate(input, &[], None).expect("valid").cron.as_deref(), Some("*/15 9-17 * * 1-5"));
+        // Nothing typed: the job runs at its time on its days.
+        assert_eq!(validate(Job { cron: Some(" ".into()), ..job("cron") }, &[], None).expect("valid").cron, None);
+        let errors = validate(Job { cron: Some("0 25 * * *".into()), ..job("cron") }, &[], None).unwrap_err();
+        assert_eq!(errors, vec!["Cron: the hour must be 0 to 23, not 25.".to_string()]);
     }
 
     #[test]

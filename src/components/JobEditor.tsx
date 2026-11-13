@@ -28,6 +28,7 @@ import {
 import { DAYS, MONTH_DAYS, slug } from '../format'
 import { AfterRunCard, DuringRunCard } from './AfterRunCard'
 import { ConditionIcon } from './ConditionIcon'
+import { CronField } from './CronField'
 import { Icon } from './Icon'
 import { PromptField } from './PromptField'
 import { RepoPicker } from './RepoPicker'
@@ -39,6 +40,7 @@ const REPEATS: [Repeat, string][] = [
   ['daily', 'Daily'],
   ['weekly', 'Weekly'],
   ['monthly', 'Monthly'],
+  ['cron', 'Cron'],
 ]
 
 const STARTS: [Starts, string][] = [
@@ -261,18 +263,23 @@ export function JobEditor({
                       </label>
                     ))}
                   </div>
-                  <label className="field inline">
-                    at
-                    <input
-                      type="time"
-                      className="time"
-                      aria-label="Time"
-                      value={draft.time}
-                      required
-                      onChange={(e) => set('time', e.target.value)}
-                    />
-                  </label>
+                  {draft.repeat !== 'cron' && (
+                    <label className="field inline">
+                      at
+                      <input
+                        type="time"
+                        className="time"
+                        aria-label="Time"
+                        value={draft.time}
+                        required
+                        onChange={(e) => set('time', e.target.value)}
+                      />
+                    </label>
+                  )}
                 </div>
+                {draft.repeat === 'cron' && (
+                  <CronField value={draft.cron} onChange={(v) => set('cron', v)} />
+                )}
                 {draft.repeat === 'weekly' && (
                   <fieldset className="toggles" aria-label="Days of the week">
                     {DAYS.map((name, i) => (

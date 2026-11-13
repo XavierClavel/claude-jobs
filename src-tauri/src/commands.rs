@@ -2,6 +2,7 @@
 
 use crate::actions::{self, Action, ActionUse, Recipient};
 use crate::conditions::{self, CommandCheck, CommandCondition, ConditionStatus, CLAUDE};
+use crate::cron::Cron;
 use crate::events::{self, Repo, WatchStatus};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
@@ -19,6 +20,9 @@ use tauri::AppHandle;
 use ts_rs::TS;
 
 static WRITES: Mutex<()> = Mutex::new(());
+
+/// How many of its next times the editor shows under a cron expression.
+const CRON_PREVIEW_RUNS: usize = 5;
 
 #[derive(Serialize, TS, Clone, Debug)]
 #[ts(export)]
@@ -135,6 +139,16 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
     events::watch(&job);
     launchd::apply_shared(&all, &exe()?)?;
     Ok(view(job))
+}
+
+/// The next times a cron expression runs, for the editor to show as it is typed, or what is wrong with it.
+#[tauri::command(async)]
+pub fn cron_preview(expression: String) -> Reply<Vec<String>> {
+    let cron = Cron::parse(&expression)?;
+    Ok(schedule::cron_runs(cron, Local::now(), CRON_PREVIEW_RUNS)
+        .iter()
+        .map(|t| t.to_rfc3339_opts(SecondsFormat::Secs, false))
+        .collect())
 }
 
 #[tauri::command(async)]

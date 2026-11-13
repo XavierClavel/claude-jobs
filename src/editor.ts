@@ -4,7 +4,8 @@ import type { EventKind } from './domain/EventKind'
 import type { Job } from './domain/Job'
 import { clock } from './format'
 
-export type Repeat = 'daily' | 'weekly' | 'monthly'
+// `cron`: a cron expression, for times the others cannot say.
+export type Repeat = 'daily' | 'weekly' | 'monthly' | 'cron'
 
 // What starts the job: its schedule, or a trigger, such as a pull request opened in a repository it watches.
 export type Starts = 'schedule' | 'trigger'
@@ -24,6 +25,8 @@ export type Draft = {
   weekdays: number[]
   monthDays: number[]
   lastDay: boolean
+  // The cron expression, as typed; kept, like the days, while another repeat is picked.
+  cron: string
   // The repositories a pull request job watches, `owner/name`, and whether only your pull requests start it. Kept
   // while the schedule is picked, so switching back restores them.
   repos: string[]
@@ -54,10 +57,17 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     trigger: job?.event?.kind ?? 'pull_request_opened',
     time: job ? clock(job.hour, job.minute) : '09:00',
     timeout: String(job?.timeout_minutes ?? 30),
-    repeat: job?.month_days.length ? 'monthly' : job?.weekdays.length ? 'weekly' : 'daily',
+    repeat: job?.cron
+      ? 'cron'
+      : job?.month_days.length
+        ? 'monthly'
+        : job?.weekdays.length
+          ? 'weekly'
+          : 'daily',
     weekdays: job?.weekdays ?? [],
     monthDays: job?.month_days ?? [],
     lastDay: job?.last_day_fallback ?? false,
+    cron: job?.cron ?? '',
     repos: job?.event?.repos ?? [],
     mine: job?.event?.mine ?? true,
     tools: job?.allowed_tools.join('\n') ?? '',
@@ -76,11 +86,22 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
   }
 }
 
-// A week or a month with no day picked means nothing, so switching to one starts on its first day.
+// A week or a month with no day picked means nothing, so switching to one starts on its first day. A cron expression
+// starts as the schedule picked so far, to change from there.
 export function withRepeat(draft: Draft, repeat: Repeat): Draft {
   if (repeat === 'weekly' && !draft.weekdays.length) return { ...draft, repeat, weekdays: [1] }
   if (repeat === 'monthly' && !draft.monthDays.length) return { ...draft, repeat, monthDays: [1] }
+  if (repeat === 'cron' && !draft.cron.trim()) return { ...draft, repeat, cron: cronOf(draft) }
   return { ...draft, repeat }
+}
+
+// The draft's time and days as a cron expression: "30 9 * * 1,5". Sunday is 0, which every cron reads.
+export function cronOf(draft: Draft): string {
+  const [hour = 0, minute = 0] = draft.time.split(':').map(Number)
+  const list = (days: number[]) => (days.length ? sorted(days).join(',') : '*')
+  const monthDays = draft.repeat === 'monthly' ? list(draft.monthDays) : '*'
+  const weekdays = draft.repeat === 'weekly' ? list(draft.weekdays.map((d) => d % 7)) : '*'
+  return `${minute} ${hour} ${monthDays} * ${weekdays}`
 }
 
 // The Rust side reads no day as every day, so a repeat left without a day has to be caught here.
@@ -90,6 +111,7 @@ export function draftErrors(draft: Draft): string[] {
     return ['Pick at least one day of the week.']
   if (draft.repeat === 'monthly' && !draft.monthDays.length)
     return ['Pick at least one day of the month.']
+  if (draft.repeat === 'cron' && !draft.cron.trim()) return ['Enter a cron expression.']
   return []
 }
 
@@ -110,6 +132,7 @@ export function toJob(draft: Draft): Job {
     month_days: draft.repeat === 'monthly' ? sorted(draft.monthDays) : [],
     last_day_fallback:
       draft.repeat === 'monthly' && draft.lastDay && hasShortMonths(draft.monthDays),
+    cron: draft.repeat === 'cron' ? draft.cron.trim() : null,
     cwd: draft.cwd,
     allowed_tools: draft.tools.split('\n'),
     model: draft.model,

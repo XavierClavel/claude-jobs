@@ -16,6 +16,7 @@ export function job(overrides: Partial<JobView> = {}): JobView {
     weekdays: [],
     month_days: [],
     last_day_fallback: false,
+    cron: null,
     cwd: '/Users/me',
     allowed_tools: [],
     model: '',

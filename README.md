@@ -3,8 +3,8 @@
 A macOS app that runs Claude Code prompts on a schedule, or when a pull request is opened or merged, headless, and
 shows how each run went.
 
-Each job is a prompt (such as `/photobook-monitor`), a time, when it repeats (every day, on days of the week, or on days
-of the month), and the tools it may use without asking. The app turns it into a launchd agent that calls the app's own
+Each job is a prompt (such as `/photobook-monitor`), a time, when it repeats (every day, on days of the week, on days
+of the month, or as a cron expression says), and the tools it may use without asking. The app turns it into a launchd agent that calls the app's own
 binary at that time:
 
 ```
@@ -23,6 +23,22 @@ runs show as **Catch-up** in the history; what the agent did is in `logs/app.cat
 
 A run that fails or times out puts up an alert that stays on screen until you close it, with its error and an **Open
 Claude Jobs** button.
+
+## Cron
+
+For times the days cannot say, such as every 15 minutes during working hours, **Repeat → Cron** takes a cron
+expression: the five fields of crontab(5), minute, hour, day of the month, month and day of the week, such as
+`*/15 9-17 * * 1-5`. Each field is `*`, a number, a range (`9-17`), a step over either (`*/15`, `8-20/4`, or `5/10`
+from 5 on) or a list of those (`1,15`). Months and days of the week take their names too (`jan`, `mon-fri`), Sunday is
+0 or 7, and `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly` and `@annually` stand for the
+expressions they name. As in crontab(5), when both the day of the month and the day of the week are given, either one
+starts the job: `0 9 1 * 1` runs on the 1st and on every Monday. Picking **Cron** starts from the schedule picked so far
+(daily at 09:00 is `0 9 * * *`), and the editor lists the next runs, or what is wrong, as you type.
+
+launchd still starts the job: the expression becomes the `StartCalendarInterval` entries of its agent, one per time it
+names (`*/15 9-17 * * 1-5` is 4 × 9 × 5 = 180 entries). Catch-up at login, conditions and actions work as for any
+other job. The job keeps its time and days, unused, while it is on cron, and gets them back when another repeat is
+picked.
 
 ## Triggers
 
@@ -259,11 +275,23 @@ Claude Jobs widget uses `status` and `watch`:
   `status` lists a triggered job with its `event`, and how its last check went in `watch`: `checked_at`, `problem`,
   and `pending`, the pull requests waiting for its current run. Its `next_run` and `previous_run` are null, and each
   of its runs has the `pull_request` it started for.
+
+  A cron schedule is the job's `cron`, the expression (see Cron); such a job needs no `hour` or `minute`. Saving
+  refuses an expression that does not read, with what is wrong, and `"cron": null` puts the job back on its time and
+  days. `status` lists every job with its `cron`, null for those without, and a cron job's `next_run` and
+  `previous_run` come from it.
+
+  ```sh
+  claude-jobs save <<'EOF'
+  {"id": "inbox", "name": "Inbox", "prompt": "/inbox", "cron": "*/15 9-17 * * 1-5"}
+  EOF
+  ```
 - `claude-jobs repos` prints the repositories a trigger can watch, those your GitHub account can see, most recently
   pushed first, as JSON: `name` (`owner/name`), `private`, `pushed_at` and `owner_avatar`.
 
-Errors go to stderr, with exit code 1. These commands came in version 0.2.0, `save` in 0.5.0, and `repos` and triggers
-in 0.7.0: an older binary opens its window instead, so check `CFBundleShortVersionString` before calling one.
+Errors go to stderr, with exit code 1. These commands came in version 0.2.0, `save` in 0.5.0, `repos` and triggers in
+0.7.0, and `cron` in 0.11.0: an older binary opens its window instead, or refuses `cron` as an unknown field, so check
+`CFBundleShortVersionString` before calling one.
 
 ## Stack
 
@@ -334,6 +362,12 @@ Downloads and the other folders macOS guards.
   not run in April. With **Run on the last day of shorter months** it runs on 30 April instead, and on 28 February (29
   in a leap year). launchd has no year, so such a job is also started on 28 February of leap years; the runner sees
   that the latest scheduled time already ran and stops there.
+- launchd starts a job when the day of the month or the day of the week of one of its entries matches, never only when
+  both do. So a cron expression whose two day fields must both match (one starts with `*`, as in `0 9 */2 * 1`, odd
+  days that are Mondays) starts on each of its days of the month. One that would need more than 1,000 entries, such
+  as `*/2 9-17 * * 1-5`, has its field with the most values left open (here the minute). Either way launchd starts the
+  job more often than the expression says, and each start runs only if the expression's last time before it has not
+  run yet; the others stop at once, with a line in the job's launchd log.
 - An interactive job waits on any permission prompt until its timeout: allow every tool it needs (your default
   permission mode still applies to the rest).
 - A job runs with the PATH set in its advanced settings, not your shell's: add the folders of every command it needs.

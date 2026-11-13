@@ -2,6 +2,7 @@
 //! `run <id>`. One more agent, `com.claude-jobs.app.catch-up`, calls `catch-up` at login while such a job is enabled,
 //! and `com.claude-jobs.app.events` calls `poll` every 5 minutes while a job an event starts is.
 
+use crate::cron::Cron;
 use crate::jobs::Job;
 use crate::paths;
 use serde::Serialize;
@@ -37,7 +38,8 @@ pub fn is_loaded(job_id: &str) -> bool {
     launchctl(&["print", &format!("{}/{}", domain(), label(job_id))]).is_some_and(|o| o.status.success())
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+/// A key left out matches any value.
+#[derive(Serialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "PascalCase")]
 struct CalendarEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,8 +48,10 @@ struct CalendarEntry {
     day: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     weekday: Option<u8>,
-    hour: u8,
-    minute: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hour: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    minute: Option<u8>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -91,8 +95,71 @@ const MONTH_ENDS: [(u8, u8); 13] = [
     (12, 31),
 ];
 
+/// The most entries a cron expression gets. Past it, the field with the most values matches any, until it fits: launchd
+/// then starts the job more often than the expression says, and the runner skips the starts that are not due.
+const MAX_CRON_ENTRIES: usize = 1000;
+
+/// Each value, or a single None for every value: launchd matches a key left out with any.
+fn values(all: &[u8], every: usize) -> Vec<Option<u8>> {
+    if all.len() == every {
+        vec![None]
+    } else {
+        all.iter().map(|&v| Some(v)).collect()
+    }
+}
+
+/// launchd starts a job when the minute, hour and month of one of its entries match, and its day of the month or its
+/// day of the week. So each cron entry holds one of them at most.
+fn cron_entries(cron: &Cron) -> Vec<CalendarEntry> {
+    let (mut minutes, mut hours, mut months) =
+        (values(&cron.minutes, 60), values(&cron.hours, 24), values(&cron.months, 12));
+    let (days, weekdays) = (values(&cron.days, 31), values(&cron.weekdays, 7));
+    let by_date = days.iter().map(|&d| (d, None));
+    let by_weekday = weekdays.iter().map(|&w| (None, w));
+    let mut dates: Vec<(Option<u8>, Option<u8>)> = if cron.both_days && days == [None] {
+        by_weekday.collect()
+    } else if cron.both_days {
+        // Both have to match, which launchd cannot say: the days of the month alone, which the runner narrows.
+        by_date.collect()
+    } else {
+        by_date.chain(by_weekday).collect()
+    };
+    if dates.contains(&(None, None)) {
+        dates = vec![(None, None)];
+    }
+    while dates.len() * months.len() * hours.len() * minutes.len() > MAX_CRON_ENTRIES {
+        let widest = [dates.len(), months.len(), hours.len(), minutes.len()];
+        match widest.iter().enumerate().max_by_key(|(_, n)| **n).map(|(i, _)| i) {
+            Some(0) => dates = vec![(None, None)],
+            Some(1) => months = vec![None],
+            Some(2) => hours = vec![None],
+            _ => minutes = vec![None],
+        }
+    }
+    // An entry without a key would be every minute; spelt out, so launchd cannot read it as nothing.
+    if dates == [(None, None)] && months == [None] && hours == [None] && minutes == [None] {
+        minutes = (0..60).map(Some).collect();
+    }
+    let mut entries = Vec::new();
+    for &(day, weekday) in &dates {
+        for &month in &months {
+            for &hour in &hours {
+                for &minute in &minutes {
+                    entries.push(CalendarEntry { month, day, weekday, hour, minute });
+                }
+            }
+        }
+    }
+    entries
+}
+
 fn interval(job: &Job) -> CalendarInterval {
-    let at = |month, day, weekday| CalendarEntry { month, day, weekday, hour: job.hour, minute: job.minute };
+    // jobs.json edited by hand can hold an expression that does not read: the job then keeps its time and days.
+    if let Some(Ok(cron)) = job.cron.as_deref().map(Cron::parse) {
+        return CalendarInterval::Days(cron_entries(&cron));
+    }
+    let at =
+        |month, day, weekday| CalendarEntry { month, day, weekday, hour: Some(job.hour), minute: Some(job.minute) };
     if !job.month_days.is_empty() {
         let mut entries: Vec<CalendarEntry> = job.month_days.iter().map(|&d| at(None, Some(d), None)).collect();
         if job.last_day_fallback {
@@ -275,6 +342,7 @@ mod tests {
             weekdays,
             month_days: vec![],
             last_day_fallback: false,
+            cron: None,
             cwd: String::new(),
             allowed_tools: vec![],
             model: String::new(),
@@ -297,8 +365,72 @@ mod tests {
     fn every_day_is_one_entry_without_a_weekday() {
         assert_eq!(
             interval(&job(vec![])),
-            CalendarInterval::Daily(CalendarEntry { month: None, day: None, weekday: None, hour: 9, minute: 30 })
+            CalendarInterval::Daily(CalendarEntry {
+                month: None,
+                day: None,
+                weekday: None,
+                hour: Some(9),
+                minute: Some(30)
+            })
         );
+    }
+
+    fn cron(expression: &str) -> Vec<CalendarEntry> {
+        let CalendarInterval::Days(entries) = interval(&Job { cron: Some(expression.into()), ..job(vec![]) }) else {
+            panic!("expected entries")
+        };
+        entries
+    }
+
+    fn entry(day: Option<u8>, weekday: Option<u8>, hour: Option<u8>, minute: Option<u8>) -> CalendarEntry {
+        CalendarEntry { month: None, day, weekday, hour, minute }
+    }
+
+    #[test]
+    fn a_cron_job_has_one_entry_per_time_it_names() {
+        let quarters = cron("*/15 9-17 * * 1-5");
+        assert_eq!(quarters.len(), 4 * 9 * 5);
+        assert_eq!(quarters[0], entry(None, Some(1), Some(9), Some(0)));
+        assert_eq!(quarters[1], entry(None, Some(1), Some(9), Some(15)));
+        // Every 5 minutes: any hour.
+        assert_eq!(
+            cron("*/5 * * * *"),
+            (0..60).step_by(5).map(|m| entry(None, None, None, Some(m))).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            cron("0 9 1,15 * *"),
+            vec![entry(Some(1), None, Some(9), Some(0)), entry(Some(15), None, Some(9), Some(0))]
+        );
+        let june = cron("30 8 * 6 *");
+        assert_eq!(june, vec![CalendarEntry { month: Some(6), ..entry(None, None, Some(8), Some(30)) }]);
+    }
+
+    #[test]
+    fn a_cron_job_on_the_first_or_on_mondays_has_an_entry_for_each() {
+        assert_eq!(
+            cron("0 9 1 * 1"),
+            vec![entry(Some(1), None, Some(9), Some(0)), entry(None, Some(1), Some(9), Some(0))]
+        );
+        // Odd days that are Mondays: launchd starts it on odd days, and the runner skips the others.
+        let odd_mondays = cron("0 9 */2 * 1");
+        assert_eq!(odd_mondays.len(), 16);
+        assert!(odd_mondays.iter().all(|e| e.weekday.is_none() && e.day.is_some()));
+    }
+
+    #[test]
+    fn every_minute_is_spelt_out() {
+        assert_eq!(cron("* * * * *"), (0..60).map(|m| entry(None, None, None, Some(m))).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_cron_job_past_the_most_entries_starts_more_often() {
+        // 30 × 9 × 5 = 1,350 entries: any minute instead, in those hours.
+        let busy = cron("*/2 9-17 * * 1-5");
+        assert_eq!(busy.len(), 9 * 5);
+        assert!(busy.iter().all(|e| e.minute.is_none() && e.hour.is_some() && e.weekday.is_some()));
+        let mut xml = Vec::new();
+        plist::to_writer_xml(&mut xml, &CalendarInterval::Days(busy)).expect("serializes");
+        assert!(!String::from_utf8(xml).expect("UTF-8").contains("Minute"));
     }
 
     #[test]
