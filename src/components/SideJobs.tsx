@@ -258,15 +258,18 @@ function target(layout: Layout, over: string): { container: string; index: numbe
 function SortableJob({
   id,
   container,
+  disabled,
   children,
 }: {
   id: string
   container: string
+  disabled: boolean
   children: ReactNode
 }) {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({
     id,
     data: { type: 'job', container } satisfies Drag,
+    disabled,
   })
   return (
     <div
@@ -303,10 +306,12 @@ function JobList({
 function SortableGroup({
   group,
   renaming,
+  disabled,
   children,
 }: {
   group: JobGroup
   renaming: boolean
+  disabled: boolean
   children: (handle: { ref: (node: HTMLElement | null) => void; listeners: object }) => ReactNode
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } =
@@ -314,7 +319,7 @@ function SortableGroup({
       id: GROUP + group.id,
       data: { type: 'group' } satisfies Drag,
       // Selecting the name being typed must not drag the group.
-      disabled: renaming,
+      disabled: renaming || disabled,
     })
   return (
     // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls, these are links.
@@ -336,6 +341,7 @@ function SortableGroup({
 export function SideJobs({
   jobs,
   layout: saved,
+  layoutReady,
   selected,
   checks,
   editing,
@@ -346,6 +352,7 @@ export function SideJobs({
 }: {
   jobs: JobView[]
   layout: Layout | null
+  layoutReady: boolean
   selected: string | null
   checks: Checks
   editing: boolean
@@ -363,7 +370,7 @@ export function SideJobs({
   const layout = reconcile(draft ?? saved, ids)
   const viewsOf = (list: string[]) => list.flatMap((id) => byId.get(id) ?? [])
   const row = (job: JobView, container: string) => (
-    <SortableJob key={job.id} id={job.id} container={container}>
+    <SortableJob key={job.id} id={job.id} container={container} disabled={!layoutReady}>
       <JobRow job={job} selected={job.id === selected} checks={checks} onSelect={onSelect} />
     </SortableJob>
   )
@@ -416,10 +423,17 @@ export function SideJobs({
         onDragEnd={end}
         onDragCancel={cancel}
       >
-        <JobList id={UNGROUPED} className="side-ungrouped">
+        <JobList
+          id={UNGROUPED}
+          className={`side-ungrouped${draggedJob && !layout.ungrouped.length ? ' empty' : ''}`}
+        >
           <SortableContext items={layout.ungrouped} strategy={verticalListSortingStrategy}>
             {viewsOf(layout.ungrouped).map((job) => row(job, UNGROUPED))}
           </SortableContext>
+          {/* Every job is in a group: this is where one comes out of its group. */}
+          {draggedJob && !layout.ungrouped.length && (
+            <span className="side-ungrouped-hint muted small-text">Drop here for no group</span>
+          )}
         </JobList>
         <SortableContext
           items={layout.groups.map((g) => GROUP + g.id)}
@@ -428,7 +442,12 @@ export function SideJobs({
           {layout.groups.map((group) => {
             const groupJobs = viewsOf(group.jobs)
             return (
-              <SortableGroup key={group.id} group={group} renaming={renaming === group.id}>
+              <SortableGroup
+                key={group.id}
+                group={group}
+                renaming={renaming === group.id}
+                disabled={!layoutReady}
+              >
                 {(handle) => (
                   <JobList id={group.id} className="side-group-body">
                     <div ref={handle.ref} {...handle.listeners}>

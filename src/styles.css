@@ -566,6 +566,13 @@ button.side-group-toggle {
   padding-left: 10px;
 }
 
+/* The list scrolls: its blocks keep their height instead of shrinking under each other. */
+.side-ungrouped,
+.side-group,
+.side-group-body {
+  flex-shrink: 0;
+}
+
 .side-ungrouped,
 .side-group-body {
   display: flex;
@@ -577,6 +584,16 @@ button.side-group-toggle {
 /* Room to drop a job back among the ones in no group, even when there are none. */
 .side-ungrouped {
   min-height: 8px;
+}
+
+.side-ungrouped.empty {
+  min-height: 40px;
+  justify-content: center;
+  border: 1px dashed var(--line);
+}
+
+.side-ungrouped-hint {
+  text-align: center;
 }
 
 .drop-over {

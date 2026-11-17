@@ -28,6 +28,7 @@ function sidebar(jobs: JobView[], checks: Checks = signedIn, more = {}) {
       onActions={noop}
       onOverview={noop}
       layout={null}
+      layoutReady
       onLayout={noop}
       {...more}
     />,
@@ -55,6 +56,7 @@ function Harness({ jobs }: { jobs: JobView[] }) {
       onActions={noop}
       onOverview={noop}
       layout={current}
+      layoutReady
       onLayout={setCurrent}
     />
   )
@@ -242,6 +244,11 @@ describe('Sidebar', () => {
       await userEvent.click(screen.getByRole('button', { name: 'More for Monitors' }))
       await userEvent.click(screen.getByRole('menuitem', { name: 'Delete group' }))
       expect(onLayout).toHaveBeenCalledWith({ ungrouped: ['a', 'b', 'c'], groups: [] })
+    })
+
+    it('waits for the saved groups before adding one', () => {
+      sidebar(jobs, signedIn, { layoutReady: false })
+      expect(screen.getByRole('button', { name: 'New group' })).toBeDisabled()
     })
 
     it('adds a group, ready to be named', async () => {

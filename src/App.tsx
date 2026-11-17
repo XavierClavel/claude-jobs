@@ -42,7 +42,7 @@ export function App() {
   const [installing, setInstalling] = useState(false)
 
   const showError = useCallback((e: unknown) => setBanner(errorsOf(e)), [])
-  const [layout, changeLayout] = useLayout(jobs?.map((j) => j.id) ?? null, showError)
+  const [layout, changeLayout, layoutReady] = useLayout(jobs?.map((j) => j.id) ?? null, showError)
 
   const refresh = useCallback(async () => {
     try {
@@ -183,6 +183,7 @@ export function App() {
         onActions={() => setView({ kind: 'actions' })}
         onOverview={() => setView({ kind: 'overview' })}
         layout={layout}
+        layoutReady={layoutReady}
         onLayout={changeLayout}
       />
       <main className="pane">

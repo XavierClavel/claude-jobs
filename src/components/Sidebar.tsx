@@ -34,6 +34,7 @@ export function Sidebar({
   onActions,
   onOverview,
   layout,
+  layoutReady,
   onLayout,
 }: {
   version: string | null
@@ -55,6 +56,8 @@ export function Sidebar({
   onOverview: () => void
   // The order and groups of the jobs, `null` for all of them in no group.
   layout: Layout | null
+  // False until the saved layout has answered: a change before would save over its groups.
+  layoutReady: boolean
   onLayout: (layout: Layout) => void
 }) {
   // The group whose name is being typed: a new one, or one asked to be renamed.
@@ -87,13 +90,19 @@ export function Sidebar({
       </div>
       <div className="side-count">
         <span className="lbl">Jobs{jobs ? ` · ${jobs.length}` : ''}</span>
-        <button type="button" className="link" disabled={editing} onClick={newGroup}>
+        <button
+          type="button"
+          className="link"
+          disabled={editing || !layoutReady}
+          onClick={newGroup}
+        >
           New group
         </button>
       </div>
       <SideJobs
         jobs={jobs ?? []}
         layout={layout}
+        layoutReady={layoutReady}
         selected={selected}
         checks={checks}
         editing={editing}
