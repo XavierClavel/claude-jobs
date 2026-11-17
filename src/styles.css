@@ -460,7 +460,114 @@ button.app-name {
 }
 
 .side-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 6px 16px 4px;
+}
+
+.side-count .link {
+  font-size: 12px;
+}
+
+.side-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.side-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 6px 0 2px;
+}
+
+button.side-group-toggle {
+  height: 22px;
+  width: 22px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.side-group-chevron {
+  display: inline-flex;
+  transition: transform 0.15s ease;
+}
+
+.side-group-chevron.open {
+  transform: rotate(90deg);
+}
+
+.side-group-name {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.side-group-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  font-size: 12.5px;
+}
+
+.side-group-count {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.side-group-more {
+  position: relative;
+  margin-left: auto;
+}
+
+.side-group-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.side-group-menu button {
+  justify-content: flex-start;
+  height: 28px;
+  border: 0;
+  background: none;
+  font-weight: 500;
+}
+
+.side-group-menu button:hover {
+  background: var(--hover);
+}
+
+.side-group-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+}
+
+.side-group-empty {
+  padding: 4px 0 6px 30px;
 }
 
 .side-jobs {

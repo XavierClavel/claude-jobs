@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import type { Checks } from '../conditions'
 import type { JobView } from '../domain/JobView'
+import type { Layout } from '../domain/Layout'
 import { action, gcloudOut, job, run, signedIn } from '../test/fixtures'
 import { Sidebar } from './Sidebar'
 
@@ -25,8 +27,36 @@ function sidebar(jobs: JobView[], checks: Checks = signedIn, more = {}) {
       onConditions={noop}
       onActions={noop}
       onOverview={noop}
+      layout={null}
+      onLayout={noop}
       {...more}
     />,
+  )
+}
+
+// The sidebar with its layout kept, as the app keeps it.
+function Harness({ jobs }: { jobs: JobView[] }) {
+  const [current, setCurrent] = useState<Layout | null>(null)
+  return (
+    <Sidebar
+      version={null}
+      jobs={jobs}
+      selected={null}
+      conditionsOpen={false}
+      actionsOpen={false}
+      editing={false}
+      checks={signedIn}
+      actions={{ onSignIn: noop, onCheck: () => Promise.resolve() }}
+      actionList={[]}
+      onCheckUpdate={() => Promise.resolve(true)}
+      onNew={noop}
+      onSelect={noop}
+      onConditions={noop}
+      onActions={noop}
+      onOverview={noop}
+      layout={current}
+      onLayout={setCurrent}
+    />
   )
 }
 
@@ -128,5 +158,100 @@ describe('Sidebar', () => {
   it('holds the list while the editor is open', () => {
     sidebar([job()], signedIn, { editing: true })
     expect(screen.getByRole('button', { name: 'New job' })).toBeDisabled()
+  })
+
+  describe('groups', () => {
+    const jobs = [
+      job({ id: 'a', name: 'Slack recap' }),
+      job({ id: 'b', name: 'Monitor pHash', last_run: run({ status: 'failed' }) }),
+      job({ id: 'c', name: 'Matte share' }),
+    ]
+    const layout = (collapsed = false): Layout => ({
+      ungrouped: ['a'],
+      groups: [{ id: 'g', name: 'Monitors', collapsed, jobs: ['b', 'c'] }],
+    })
+    const names = () =>
+      Array.from(document.querySelectorAll('.side-row-name, .side-group-name')).map(
+        (e) => e.textContent,
+      )
+
+    it('shows the jobs without a group first, then each group with its jobs', () => {
+      sidebar(jobs, signedIn, { layout: layout() })
+      expect(names()).toEqual(['Slack recap', 'Monitors', 'Monitor pHash', 'Matte share'])
+      const group = within(screen.getByRole('group', { name: 'Monitors' }))
+      expect(group.getByRole('button', { name: /^Matte share/ })).toBeInTheDocument()
+    })
+
+    it('shows every job without a group when there is no layout', () => {
+      sidebar(jobs)
+      expect(names()).toEqual(['Slack recap', 'Monitor pHash', 'Matte share'])
+    })
+
+    it('shows a job the layout does not know yet, at the bottom of the jobs without a group', () => {
+      sidebar([...jobs, job({ id: 'd', name: 'Prépa réunions' })], signedIn, { layout: layout() })
+      expect(names()).toEqual([
+        'Slack recap',
+        'Prépa réunions',
+        'Monitors',
+        'Monitor pHash',
+        'Matte share',
+      ])
+    })
+
+    it('collapses a group', async () => {
+      const onLayout = vi.fn()
+      sidebar(jobs, signedIn, { layout: layout(), onLayout })
+      await userEvent.click(screen.getByRole('button', { name: 'Collapse Monitors' }))
+      expect(onLayout).toHaveBeenCalledWith(layout(true))
+    })
+
+    it('hides a collapsed group’s jobs, and shows how many and the worst state', () => {
+      sidebar(jobs, signedIn, { layout: layout(true) })
+      const group = screen.getByRole('group', { name: 'Monitors' })
+      expect(within(group).queryByRole('button', { name: /^Matte share/ })).not.toBeInTheDocument()
+      expect(group).toHaveTextContent('· 2')
+      expect(group.querySelector('.dot')).toHaveClass('dot-bad')
+    })
+
+    it('renames a group on a double click', async () => {
+      const onLayout = vi.fn()
+      sidebar(jobs, signedIn, { layout: layout(), onLayout })
+      await userEvent.dblClick(screen.getByText('Monitors'))
+      const input = screen.getByRole('textbox', { name: 'Group name' })
+      await userEvent.clear(input)
+      await userEvent.type(input, 'Watchers{Enter}')
+      expect(onLayout).toHaveBeenCalledOnce()
+      expect(onLayout.mock.calls[0]?.[0].groups[0].name).toBe('Watchers')
+    })
+
+    it('keeps the name of a group renamed blank, or when the rename is cancelled', async () => {
+      const onLayout = vi.fn()
+      sidebar(jobs, signedIn, { layout: layout(), onLayout })
+      await userEvent.dblClick(screen.getByText('Monitors'))
+      await userEvent.clear(screen.getByRole('textbox', { name: 'Group name' }))
+      await userEvent.keyboard('{Enter}')
+      await userEvent.dblClick(screen.getByText('Monitors'))
+      await userEvent.type(screen.getByRole('textbox', { name: 'Group name' }), 'x{Escape}')
+      expect(onLayout).not.toHaveBeenCalled()
+      expect(screen.getByText('Monitors')).toBeInTheDocument()
+    })
+
+    it('deletes a group and keeps its jobs', async () => {
+      const onLayout = vi.fn()
+      sidebar(jobs, signedIn, { layout: layout(), onLayout })
+      await userEvent.click(screen.getByRole('button', { name: 'More for Monitors' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Delete group' }))
+      expect(onLayout).toHaveBeenCalledWith({ ungrouped: ['a', 'b', 'c'], groups: [] })
+    })
+
+    it('adds a group, ready to be named', async () => {
+      render(<Harness jobs={jobs} />)
+      await userEvent.click(screen.getByRole('button', { name: 'New group' }))
+      const input = screen.getByRole('textbox', { name: 'Group name' })
+      expect(input).toHaveFocus()
+      expect(input).toHaveValue('New group')
+      await userEvent.type(input, '{Control>}a{/Control}Routines{Enter}')
+      expect(screen.getByRole('group', { name: 'Routines' })).toBeInTheDocument()
+    })
   })
 })

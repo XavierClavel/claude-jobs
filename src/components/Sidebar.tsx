@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   type CheckActions,
   type Checks,
@@ -5,44 +6,16 @@ import {
   conditionState,
   shortName,
   shownConditions,
-  waitsFor,
 } from '../conditions'
 import type { Action } from '../domain/Action'
 import type { JobView } from '../domain/JobView'
-import { day, midSentence, STATUS_LABEL, scheduleShort } from '../format'
-import { failed, isRunning, jobTone, unmetOf } from '../jobs'
+import type { Layout } from '../domain/Layout'
+import { addGroup, newGroupId, reconcile } from '../layout'
 import { ActionIcon } from './ActionIcon'
 import { ConditionIcon } from './ConditionIcon'
-import { Elapsed } from './Elapsed'
 import { Icon } from './Icon'
+import { SideJobs } from './SideJobs'
 import { UpdateCheck } from './UpdateCheck'
-
-// What a job is doing, in the line under its name: of a run, its time so far first, which the ellipsis spares.
-export function JobLine({ job, checks }: { job: JobView; checks: Checks }) {
-  const last = job.last_run
-  if (last && isRunning(job))
-    return last.progress ? (
-      <>
-        <Elapsed since={last.started_at} /> · {last.progress.text}
-      </>
-    ) : (
-      <>
-        Running · <Elapsed since={last.started_at} /> so far
-      </>
-    )
-  const unmet = unmetOf(job)
-  if (job.waiting) return <>Waiting for {waitsFor(unmet, checks) || 'its conditions'}</>
-  if (!job.enabled) return <>Paused</>
-  if (!job.loaded) return <>Not loaded in launchd</>
-  const schedule = scheduleShort(job)
-  if (unmet.length) return <>{`${schedule} · waits for ${waitsFor(unmet, checks)}`}</>
-  if (job.watch?.problem) return <>{`${schedule} · cannot check GitHub`}</>
-  if (last && failed(last.status))
-    return <>{`${schedule} · last run ${STATUS_LABEL[last.status].toLowerCase()}`}</>
-  if (last?.status === 'warning') return <>{`${schedule} · last run with a warning`}</>
-  if (!job.next_run) return <>{schedule}</>
-  return <>{`${schedule} · next ${midSentence(day(job.next_run))}`}</>
-}
 
 export function Sidebar({
   version,
@@ -60,6 +33,8 @@ export function Sidebar({
   onConditions,
   onActions,
   onOverview,
+  layout,
+  onLayout,
 }: {
   version: string | null
   jobs: JobView[] | null
@@ -78,7 +53,21 @@ export function Sidebar({
   onConditions: () => void
   onActions: () => void
   onOverview: () => void
+  // The order and groups of the jobs, `null` for all of them in no group.
+  layout: Layout | null
+  onLayout: (layout: Layout) => void
 }) {
+  // The group whose name is being typed: a new one, or one asked to be renamed.
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const newGroup = () => {
+    const id = newGroupId()
+    const current = reconcile(
+      layout,
+      (jobs ?? []).map((j) => j.id),
+    )
+    onLayout(addGroup(current, id, 'New group'))
+    setRenaming(id)
+  }
   return (
     <aside className="side">
       <div className="side-head">
@@ -96,26 +85,23 @@ export function Sidebar({
           New job
         </button>
       </div>
-      <div className="lbl side-count">Jobs{jobs ? ` · ${jobs.length}` : ''}</div>
-      <nav aria-label="Jobs" className="side-jobs" inert={editing}>
-        {jobs?.map((job) => (
-          <button
-            type="button"
-            key={job.id}
-            className={`side-row${job.id === selected ? ' selected' : ''}${job.enabled ? '' : ' paused'}`}
-            aria-current={job.id === selected ? 'page' : undefined}
-            onClick={() => onSelect(job.id)}
-          >
-            <span className={`dot dot-${jobTone(job)}`} />
-            <span className="side-row-text">
-              <span className="side-row-name">{job.name}</span>
-              <span className="side-row-sub">
-                <JobLine job={job} checks={checks} />
-              </span>
-            </span>
-          </button>
-        ))}
-      </nav>
+      <div className="side-count">
+        <span className="lbl">Jobs{jobs ? ` · ${jobs.length}` : ''}</span>
+        <button type="button" className="link" disabled={editing} onClick={newGroup}>
+          New group
+        </button>
+      </div>
+      <SideJobs
+        jobs={jobs ?? []}
+        layout={layout}
+        selected={selected}
+        checks={checks}
+        editing={editing}
+        renaming={renaming}
+        onRenaming={setRenaming}
+        onSelect={onSelect}
+        onLayout={onLayout}
+      />
       <section
         aria-label="Conditions"
         className={`side-conditions${conditionsOpen ? ' selected' : ''}`}

@@ -16,6 +16,7 @@ import type { ConditionStatus } from './domain/ConditionStatus'
 import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { JobView } from './domain/JobView'
+import { useLayout } from './useLayout'
 
 // What the pane shows beside the list of jobs.
 type View =
@@ -39,6 +40,9 @@ export function App() {
   const [signingIn, setSigningIn] = useState(false)
   const [update, setUpdate] = useState<AppUpdate | null>(null)
   const [installing, setInstalling] = useState(false)
+
+  const showError = useCallback((e: unknown) => setBanner(errorsOf(e)), [])
+  const [layout, changeLayout] = useLayout(jobs?.map((j) => j.id) ?? null, showError)
 
   const refresh = useCallback(async () => {
     try {
@@ -178,6 +182,8 @@ export function App() {
         onConditions={() => setView({ kind: 'conditions' })}
         onActions={() => setView({ kind: 'actions' })}
         onOverview={() => setView({ kind: 'overview' })}
+        layout={layout}
+        onLayout={changeLayout}
       />
       <main className="pane">
         <UpdateBar
