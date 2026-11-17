@@ -10,7 +10,8 @@ macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with lau
   `mcp` (`claude-jobs mcp <job> <run>`, the MCP server a run's Claude gets with `--mcp-config`: its `send_message`
   tool sends to the job's `during_run` recipients),
   `events` (jobs a trigger, a pull request opened or merged, starts instead of a schedule: `claude-jobs poll`, every
-  minute from launchd, with the GitHub CLI; kept in `events.json`), `runs` (history, and the run waiting to start),
+  minute from launchd, with the GitHub CLI; kept in `events.json`), `layout` (the sidebar's order and groups, kept in `layout.json` apart from `jobs.json` and reconciled
+  with it on each read and write), `runs` (history, and the run waiting to start),
   `schedule` (next run), `cron` (a job's cron expression, read as crontab(5) does: `schedule` and `launchd` follow it
   instead of the job's time and days), `update` (new versions from the GitHub releases), `commands` (what the window calls), `cli`
   (`status`, `start`, `watch`, `save`: what other apps and agents call, such as Dooock; keep `status` fields stable).

@@ -52,6 +52,7 @@ functions in `src/layout.ts`, shows it in `Sidebar`, and saves it optimistically
 
 **Interfaces:**
 - Produces:
+
   ```rust
   #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Default)] #[ts(export)]
   pub struct Layout { #[serde(default)] pub ungrouped: Vec<String>, #[serde(default)] pub groups: Vec<JobGroup> }
@@ -65,6 +66,7 @@ functions in `src/layout.ts`, shows it in `Sidebar`, and saves it optimistically
   pub fn get_layout() -> Reply<Layout>                  // reconcile(load()?, ids of jobs::load()?)
   pub fn save_layout(layout: Layout) -> Reply<Layout>   // under lock(): reconcile, save, return what was saved
   ```
+
   `api.ts`: `getLayout: () => invoke<Layout>('get_layout')`,
   `saveLayout: (layout: Layout) => invoke<Layout>('save_layout', { layout })`.
 
@@ -100,6 +102,7 @@ missing-job rule). Append the jobs that are not placed to `ungrouped`, in `job_i
 **Interfaces:**
 - Consumes: `Layout`, `JobGroup` from `src/domain`; `Tone`, `jobTone` from `src/jobs.ts`.
 - Produces (all pure, returning a new `Layout`):
+
   ```ts
   export const UNGROUPED = 'ungrouped'                       // container id of the jobs without a group
   export function reconcile(layout: Layout | null, jobIds: string[]): Layout   // same rules as Rust
@@ -113,6 +116,7 @@ missing-job rule). Append the jobs that are not placed to `ungrouped`, in `job_i
   export function groupTone(jobs: JobView[]): Tone   // worst first: bad, warn, running, ok, muted; empty → 'muted'
   export function newGroupId(): string               // `g-${Date.now().toString(36)}${random suffix}`
   ```
+
   `moveJob` takes the job out of its current list, then inserts it into `container` at `index`, clamped to the list's
   length. `index` is the position in the target list after removal. An unknown container leaves the layout unchanged.
 

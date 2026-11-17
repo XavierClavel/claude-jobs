@@ -8,6 +8,7 @@ pub mod gcloud;
 pub mod interactive;
 pub mod jobs;
 pub mod launchd;
+pub mod layout;
 pub mod mcp;
 pub mod paths;
 pub mod runner;
@@ -30,6 +31,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_jobs,
+            commands::get_layout,
+            commands::save_layout,
             commands::defaults,
             commands::save_job,
             commands::cron_preview,

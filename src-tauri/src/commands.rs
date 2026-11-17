@@ -6,6 +6,7 @@ use crate::cron::Cron;
 use crate::events::{self, Repo, WatchStatus};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
+use crate::layout::{self, Layout};
 use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
 use crate::skills::{self, Skill};
 use crate::tmux::{self, TmuxStatus};
@@ -96,6 +97,25 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 #[tauri::command(async)]
 pub fn list_jobs() -> Reply<Vec<JobView>> {
     Ok(jobs::load()?.into_iter().map(view).collect())
+}
+
+/// The sidebar's order and groups, with every job in it once.
+#[tauri::command(async)]
+pub fn get_layout() -> Reply<Layout> {
+    Ok(layout::reconcile(layout::load()?, &job_ids()?))
+}
+
+/// Keeps the sidebar's order and groups, reconciled with the jobs, and gives back what it kept.
+#[tauri::command(async)]
+pub fn save_layout(layout: Layout) -> Reply<Layout> {
+    let _guard = lock();
+    let kept = layout::reconcile(layout, &job_ids()?);
+    layout::save(&kept)?;
+    Ok(kept)
+}
+
+fn job_ids() -> Result<Vec<String>, String> {
+    Ok(jobs::load()?.into_iter().map(|j| j.id).collect())
 }
 
 #[tauri::command(async)]

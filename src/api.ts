@@ -10,6 +10,7 @@ import type { Defaults } from './domain/Defaults'
 import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
+import type { Layout } from './domain/Layout'
 import type { Recipient } from './domain/Recipient'
 import type { Repo } from './domain/Repo'
 import type { RunDetail } from './domain/RunDetail'
@@ -20,6 +21,8 @@ import type { TmuxStatus } from './domain/TmuxStatus'
 // One function per Rust command in `src-tauri/src/commands.rs`.
 export const api = {
   listJobs: () => invoke<JobView[]>('list_jobs'),
+  getLayout: () => invoke<Layout>('get_layout'),
+  saveLayout: (layout: Layout) => invoke<Layout>('save_layout', { layout }),
   defaults: () => invoke<Defaults>('defaults'),
   saveJob: (job: Job, editing: string | null) => invoke<JobView>('save_job', { job, editing }),
   cronPreview: (expression: string) => invoke<string[]>('cron_preview', { expression }),
