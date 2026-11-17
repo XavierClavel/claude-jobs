@@ -566,6 +566,44 @@ button.side-group-toggle {
   padding-left: 10px;
 }
 
+.side-ungrouped,
+.side-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 9px;
+}
+
+/* Room to drop a job back among the ones in no group, even when there are none. */
+.side-ungrouped {
+  min-height: 8px;
+}
+
+.drop-over {
+  background: var(--hover);
+}
+
+.side-sortable {
+  display: flex;
+  flex-direction: column;
+}
+
+.side-sortable.dragging,
+.side-group.dragging {
+  opacity: 0.35;
+}
+
+.side-drag {
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px var(--shadow);
+  cursor: grabbing;
+}
+
+.side-drag-group {
+  padding: 8px 12px;
+}
+
 .side-group-empty {
   padding: 4px 0 6px 30px;
 }
