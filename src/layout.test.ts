@@ -82,7 +82,7 @@ describe('moveJob', () => {
   })
 
   it('appends a job when the place is past the end', () => {
-    expect(moveJob(layout(['a'], [group('g', ['b'])]), 'a', 'g', 9).groups[0].jobs).toEqual([
+    expect(moveJob(layout(['a'], [group('g', ['b'])]), 'a', 'g', 9).groups[0]?.jobs).toEqual([
       'b',
       'a',
     ])
@@ -111,8 +111,8 @@ describe('groups', () => {
 
   it('renames a group, and keeps its name for a blank one', () => {
     const l = layout([], [group('g')])
-    expect(renameGroup(l, 'g', '  Monitors ').groups[0].name).toBe('Monitors')
-    expect(renameGroup(l, 'g', '  ').groups[0].name).toBe('G')
+    expect(renameGroup(l, 'g', '  Monitors ').groups[0]?.name).toBe('Monitors')
+    expect(renameGroup(l, 'g', '  ').groups[0]?.name).toBe('G')
   })
 
   it('deletes a group and keeps its jobs, in no group', () => {
