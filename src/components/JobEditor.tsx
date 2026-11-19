@@ -11,9 +11,11 @@ import {
 } from '../conditions'
 import type { Action } from '../domain/Action'
 import type { Defaults } from '../domain/Defaults'
+import type { Effort } from '../domain/Effort'
 import type { EventKind } from '../domain/EventKind'
 import type { JobView } from '../domain/JobView'
-import type { Skill } from '../domain/Skill'
+import type { Model } from '../domain/Model'
+import type { Offer } from '../domain/Offer'
 import type { TmuxStatus } from '../domain/TmuxStatus'
 import {
   type Draft,
@@ -48,6 +50,20 @@ const STARTS: [Starts, string][] = [
   ['trigger', 'On trigger'],
 ]
 
+const EFFORTS: [Effort, string][] = [
+  ['low', 'Low'],
+  ['medium', 'Medium'],
+  ['high', 'High'],
+  ['xhigh', 'Extra high'],
+  ['max', 'Max'],
+]
+
+// Before Claude Code answers, or when it cannot.
+const NOTHING_OFFERED: Offer = { skills: [], models: [], default_model: null, default_effort: null }
+
+// What a job that picks nothing gets, when Claude Code says.
+const byDefault = (name: string | null | undefined) => (name ? `Default (${name})` : 'Default')
+
 const TRIGGERS: [EventKind, string][] = [
   ['pull_request_opened', 'Pull request opened'],
   ['pull_request_merged', 'Pull request merged'],
@@ -81,7 +97,7 @@ export function JobEditor({
   const [saving, setSaving] = useState(false)
   const [tmux, setTmux] = useState<TmuxStatus | null>(null)
   const [installing, setInstalling] = useState(false)
-  const [skills, setSkills] = useState<Skill[]>([])
+  const [offer, setOffer] = useState<Offer>(NOTHING_OFFERED)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
 
@@ -91,17 +107,18 @@ export function JobEditor({
     api.tmuxStatus(draft.path.trim()).then(setTmux, () => setTmux(null))
   }, [draft.interactive, draft.path])
 
-  // The skills the prompt suggests: those the job's runs find, which depend on its folder, Claude binary and PATH.
-  // Each check starts Claude Code, so it waits for a pause in typing.
+  // The skills the prompt suggests, the models to pick from and what picking none gets: those the job's runs find,
+  // which depend on its folder, Claude binary and PATH, and its model for the effort. Each check starts Claude Code,
+  // so it waits for a pause in typing.
   useEffect(() => {
     let latest = true
     const timer = setTimeout(() => {
-      api.listSkills(draft.claude.trim(), draft.path.trim(), draft.cwd.trim()).then(
+      api.listOffer(draft.claude.trim(), draft.path.trim(), draft.cwd.trim(), draft.model).then(
         (found) => {
-          if (latest) setSkills(found)
+          if (latest) setOffer(found)
         },
         () => {
-          if (latest) setSkills([])
+          if (latest) setOffer(NOTHING_OFFERED)
         },
       )
     }, 300)
@@ -109,7 +126,7 @@ export function JobEditor({
       latest = false
       clearTimeout(timer)
     }
-  }, [draft.claude, draft.path, draft.cwd])
+  }, [draft.claude, draft.path, draft.cwd, draft.model])
 
   async function installTmux() {
     setInstalling(true)
@@ -219,7 +236,11 @@ export function JobEditor({
                 />
               </label>
             </div>
-            <PromptField value={draft.prompt} skills={skills} onChange={(v) => set('prompt', v)} />
+            <PromptField
+              value={draft.prompt}
+              skills={offer.skills}
+              onChange={(v) => set('prompt', v)}
+            />
           </section>
 
           <fieldset className="card">
@@ -380,6 +401,28 @@ export function JobEditor({
           </section>
 
           <section className="card">
+            <ModelField
+              value={draft.model}
+              models={offer.models}
+              defaultModel={offer.default_model}
+              onChange={(model) => set('model', model)}
+            />
+            <label className="field inline spread">
+              Effort
+              <select
+                value={draft.effort ?? ''}
+                onChange={(e) => set('effort', (e.target.value || null) as Effort | null)}
+              >
+                <option value="">
+                  {byDefault(EFFORTS.find(([value]) => value === offer.default_effort)?.[1])}
+                </option>
+                {EFFORTS.map(([value, name]) => (
+                  <option key={value} value={value}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="field inline spread">
               Timeout
               <span className="inline normal">
@@ -411,14 +454,6 @@ export function JobEditor({
                 />
               </label>
               <label className="field">
-                Model (empty = default)
-                <input
-                  className="mono"
-                  value={draft.model}
-                  onChange={(e) => set('model', e.target.value)}
-                />
-              </label>
-              <label className="field">
                 Claude binary
                 <input
                   className="mono"
@@ -441,6 +476,54 @@ export function JobEditor({
         </div>
       </div>
     </form>
+  )
+}
+
+// The models Claude Code offers: the latest of a family, which moves to each of its new versions, or one version,
+// which stays. A model it does not list, such as one set from the command line, stays picked.
+function ModelField({
+  value,
+  models,
+  defaultModel,
+  onChange,
+}: {
+  value: string
+  models: Model[]
+  // The version a job with no model runs on.
+  defaultModel: string | null
+  onChange: (value: string) => void
+}) {
+  const latest = models.filter((m) => m.latest)
+  const versions = models.filter((m) => !m.latest)
+  const listed = value === '' || models.some((m) => m.value === value)
+  return (
+    <label className="field inline spread">
+      Model
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">
+          {byDefault(versions.find((m) => m.value === defaultModel)?.name ?? defaultModel)}
+        </option>
+        {!listed && <option value={value}>{value}</option>}
+        {latest.length > 0 && (
+          <optgroup label="Latest">
+            {latest.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.name} (latest)
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {versions.length > 0 && (
+          <optgroup label="Specific version">
+            {versions.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+    </label>
   )
 }
 

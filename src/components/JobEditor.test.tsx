@@ -1,8 +1,26 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api'
-import { action, command, gcloudOut, recipient, signedIn, use } from '../test/fixtures'
+import type { Offer } from '../domain/Offer'
+import { action, command, gcloudOut, job, recipient, signedIn, use } from '../test/fixtures'
 import { JobEditor } from './JobEditor'
+
+// As Claude Code lists them: the latest of a family, then every version; and what a job that picks none gets.
+const offered = vi.hoisted(
+  (): Offer => ({
+    skills: [],
+    models: [
+      { value: 'opus', name: 'Opus 5.5', latest: true },
+      { value: 'haiku', name: 'Haiku 5.5', latest: true },
+      { value: 'claude-opus-5-5', name: 'Opus 5.5', latest: false },
+      { value: 'claude-haiku-5-5', name: 'Haiku 5.5', latest: false },
+      { value: 'claude-opus-4-8', name: 'Opus 4.8', latest: false },
+    ],
+    default_model: 'claude-haiku-5-5',
+    default_effort: 'medium',
+  }),
+)
+const { models } = offered
 
 vi.mock('../api', () => ({
   api: {
@@ -11,7 +29,7 @@ vi.mock('../api', () => ({
     cronPreview: vi.fn(() =>
       Promise.resolve(['2026-11-16T09:00:00+01:00', '2026-11-16T09:15:00+01:00']),
     ),
-    listSkills: vi.fn(() => Promise.resolve([])),
+    listOffer: vi.fn(() => Promise.resolve(offered)),
     listRepos: vi.fn(() =>
       Promise.resolve([
         {
@@ -39,6 +57,9 @@ vi.mock('../api', () => ({
 }))
 
 const defaults = { claude: '/bin/claude', path: '/usr/bin:/bin', cwd: '/Users/me' }
+
+// The options of one list: the editor's selects have options too.
+const listed = (name: string) => within(screen.getByRole('listbox', { name }))
 
 async function newJob() {
   const onSaved = vi.fn()
@@ -76,7 +97,9 @@ describe('JobEditor', () => {
     expect(screen.queryByRole('radio', { name: 'Daily' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Add repository' }))
     const search = screen.getByRole('combobox', { name: 'Search repositories' })
-    const options = await screen.findAllByRole('option')
+    const options = await within(
+      await screen.findByRole('listbox', { name: 'Repositories' }),
+    ).findAllByRole('option')
     expect(options).toHaveLength(3)
     // Each with its owner's picture, small.
     expect(options[1]?.querySelector('img')).toHaveAttribute(
@@ -84,14 +107,16 @@ describe('JobEditor', () => {
       'https://avatars.githubusercontent.com/u/2?v=4&s=40',
     )
     await userEvent.type(search, 'picta api')
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-      'Pictarine/backend-picta-apiPrivate',
-    ])
+    expect(
+      listed('Repositories')
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Pictarine/backend-picta-apiPrivate'])
     await userEvent.type(search, '{enter}')
     await userEvent.click(screen.getByRole('button', { name: 'Add repository' }))
     // One already added is not offered again.
-    expect(screen.getAllByRole('option')).toHaveLength(2)
-    await userEvent.click(screen.getByRole('option', { name: /claude-jobs/ }))
+    expect(listed('Repositories').getAllByRole('option')).toHaveLength(2)
+    await userEvent.click(listed('Repositories').getByRole('option', { name: /claude-jobs/ }))
     expect(screen.getByLabelText('Only my pull requests')).toBeChecked()
     await userEvent.click(
       screen.getByRole('button', { name: 'Remove Pictarine/backend-picta-api' }),
@@ -166,6 +191,85 @@ describe('JobEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a cron expression.')
     expect(api.saveJob).not.toHaveBeenCalled()
+  })
+
+  it("runs on Claude Code's model and effort until others are picked", async () => {
+    await newJob()
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: '', effort: null }),
+      null,
+    )
+    const [model, effort] = ['claude-opus-4-8', 'xhigh']
+    await screen.findByRole('option', { name: 'Opus 4.8' })
+    await userEvent.selectOptions(screen.getByLabelText('Model'), model)
+    await userEvent.selectOptions(screen.getByLabelText('Effort'), effort)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveJob).toHaveBeenLastCalledWith(expect.objectContaining({ model, effort }), null)
+  })
+
+  it("says what Default is: the model a job with no model runs on, and the effort of the job's model", async () => {
+    await newJob()
+    const defaultName = models.find((m) => !m.latest && m.value === offered.default_model)?.name
+    expect(
+      await screen.findByRole('option', { name: `Default (${defaultName})` }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Default (Medium)' })).toBeInTheDocument()
+    // The effort a model runs at by default depends on the model: Claude Code is asked again on the one picked.
+    const model = 'claude-opus-4-8'
+    await userEvent.selectOptions(screen.getByLabelText('Model'), model)
+    await waitFor(() =>
+      expect(api.listOffer).toHaveBeenLastCalledWith(
+        '/bin/claude',
+        '/usr/bin:/bin',
+        '/Users/me',
+        model,
+      ),
+    )
+  })
+
+  it('says only Default when Claude Code does not say what it is', async () => {
+    vi.mocked(api.listOffer).mockResolvedValueOnce({
+      ...offered,
+      default_model: null,
+      default_effort: null,
+    })
+    await newJob()
+    // Its answer is in: the models it lists.
+    await screen.findByRole('group', { name: 'Latest' })
+    const options = (field: string) =>
+      within(screen.getByLabelText(field)).getAllByRole('option', { name: /^Default/ })
+    expect(options('Model').map((o) => o.textContent)).toEqual(['Default'])
+    expect(options('Effort').map((o) => o.textContent)).toEqual(['Default'])
+  })
+
+  it('offers the latest of each family, then every version, as Claude Code lists them', async () => {
+    await newJob()
+    const names = (group: string) =>
+      within(screen.getByRole('group', { name: group }))
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+    await screen.findByRole('group', { name: 'Latest' })
+    expect(names('Latest')).toEqual(models.filter((m) => m.latest).map((m) => `${m.name} (latest)`))
+    expect(names('Specific version')).toEqual(models.filter((m) => !m.latest).map((m) => m.name))
+  })
+
+  it('keeps a model Claude Code does not list, such as one set from the command line', async () => {
+    const model = 'claude-sonnet-4-6'
+    render(
+      <JobEditor
+        job={job({ model })}
+        defaults={defaults}
+        checks={signedIn}
+        actions={[]}
+        onActionSaved={() => {}}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />,
+    )
+    await screen.findByRole('group', { name: 'Latest' })
+    expect(screen.getByLabelText('Model')).toHaveValue(model)
   })
 
   it('has no catch-up option: every job catches up', async () => {
@@ -420,7 +524,9 @@ describe('JobEditor prompt', () => {
   ]
 
   async function openEditor() {
-    vi.mocked(api.listSkills).mockClear().mockResolvedValue(skills)
+    vi.mocked(api.listOffer)
+      .mockClear()
+      .mockResolvedValue({ skills, models: [], default_model: null, default_effort: null })
     render(
       <JobEditor
         job={null}
@@ -434,7 +540,7 @@ describe('JobEditor prompt', () => {
       />,
     )
     await waitFor(() =>
-      expect(api.listSkills).toHaveBeenCalledWith('/bin/claude', '/usr/bin:/bin', '/Users/me'),
+      expect(api.listOffer).toHaveBeenCalledWith('/bin/claude', '/usr/bin:/bin', '/Users/me', ''),
     )
     return screen.getByLabelText('Prompt')
   }
@@ -442,19 +548,25 @@ describe('JobEditor prompt', () => {
   it('suggests the skills that match what follows the slash', async () => {
     const prompt = await openEditor()
     await userEvent.type(prompt, '/')
-    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(listed('Skills').getAllByRole('option')).toHaveLength(3)
     await userEvent.type(prompt, 'pr')
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-      '/prompt-review:prompt-reviewGrade recent prompts',
-    ])
+    expect(
+      listed('Skills')
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['/prompt-review:prompt-reviewGrade recent prompts'])
   })
 
   it('puts in the skill picked with the arrows and Enter', async () => {
     const prompt = await openEditor()
     await userEvent.type(prompt, '/re')
-    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('/prompt-review')
+    expect(listed('Skills').getByRole('option', { selected: true })).toHaveTextContent(
+      '/prompt-review',
+    )
     await userEvent.keyboard('{ArrowDown}')
-    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('/code-review')
+    expect(listed('Skills').getByRole('option', { selected: true })).toHaveTextContent(
+      '/code-review',
+    )
     await userEvent.keyboard('{Enter}')
     expect(prompt).toHaveValue('/code-review ')
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
@@ -465,7 +577,7 @@ describe('JobEditor prompt', () => {
   it('puts in the skill clicked', async () => {
     const prompt = await openEditor()
     await userEvent.type(prompt, 'Run /pho')
-    await userEvent.click(screen.getByRole('option', { name: /photobook-monitor/ }))
+    await userEvent.click(listed('Skills').getByRole('option', { name: /photobook-monitor/ }))
     expect(prompt).toHaveValue('Run /photobook-monitor ')
     expect(prompt).toHaveFocus()
   })
@@ -476,6 +588,6 @@ describe('JobEditor prompt', () => {
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     await userEvent.type(prompt, 'h')
-    expect(screen.getByRole('option')).toHaveTextContent('/photobook-monitor')
+    expect(listed('Skills').getByRole('option')).toHaveTextContent('/photobook-monitor')
   })
 })

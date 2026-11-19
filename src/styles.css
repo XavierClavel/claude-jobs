@@ -1604,6 +1604,11 @@ input.minutes {
   text-align: right;
 }
 
+/* The model and effort pickers, one width so they line up. */
+.field.spread select {
+  width: 172px;
+}
+
 textarea {
   height: auto;
   min-height: 72px;

@@ -39,8 +39,13 @@ pub struct Job {
     pub cwd: String,
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+    /// The model Claude Code runs with: an alias such as `opus`, or a model's full name. Empty for Claude Code's
+    /// default.
     #[serde(default)]
     pub model: String,
+    /// How hard Claude thinks; none for Claude Code's default.
+    #[serde(default)]
+    pub effort: Option<Effort>,
     #[serde(default = "default_timeout")]
     pub timeout_minutes: u32,
     #[serde(default = "default_enabled")]
@@ -76,6 +81,31 @@ pub struct Job {
     /// that runs on its schedule. `hour`, `minute` and the days are kept but unused meanwhile. See `events`.
     #[serde(default)]
     pub event: Option<Event>,
+}
+
+/// The effort levels Claude Code takes with `--effort`.
+#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl Effort {
+    /// The level as `--effort` takes it.
+    pub fn arg(self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::Xhigh => "xhigh",
+            Effort::Max => "max",
+        }
+    }
 }
 
 fn default_timeout() -> u32 {
@@ -321,6 +351,7 @@ mod tests {
             cwd: "/tmp".into(),
             allowed_tools: vec![" Read ".into(), "".into()],
             model: "".into(),
+            effort: None,
             timeout_minutes: 30,
             enabled: true,
             claude: "/bin/sh".into(),

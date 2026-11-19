@@ -1,5 +1,6 @@
 import type { ActionUse } from './domain/ActionUse'
 import type { Defaults } from './domain/Defaults'
+import type { Effort } from './domain/Effort'
 import type { EventKind } from './domain/EventKind'
 import type { Job } from './domain/Job'
 import { clock } from './format'
@@ -34,6 +35,7 @@ export type Draft = {
   tools: string
   cwd: string
   model: string
+  effort: Effort | null
   claude: string
   path: string
   enabled: boolean
@@ -73,6 +75,7 @@ export function toDraft(job: Job | null, defaults: Defaults | null): Draft {
     tools: job?.allowed_tools.join('\n') ?? '',
     cwd: job?.cwd ?? defaults?.cwd ?? '',
     model: job?.model ?? '',
+    effort: job?.effort ?? null,
     claude: job?.claude ?? defaults?.claude ?? '',
     path: job?.path ?? defaults?.path ?? '',
     enabled: job?.enabled ?? true,
@@ -136,6 +139,7 @@ export function toJob(draft: Draft): Job {
     cwd: draft.cwd,
     allowed_tools: draft.tools.split('\n'),
     model: draft.model,
+    effort: draft.effort,
     timeout_minutes: Number(draft.timeout) || 0,
     enabled: draft.enabled,
     claude: draft.claude,
