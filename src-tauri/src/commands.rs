@@ -7,8 +7,8 @@ use crate::events::{self, Repo, WatchStatus};
 use crate::gcloud::{self, GcloudStatus};
 use crate::jobs::{self, Defaults, Job};
 use crate::layout::{self, Layout};
+use crate::offer::{self, Offer};
 use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
-use crate::skills::{self, Skill};
 use crate::tmux::{self, TmuxStatus};
 use crate::update::{self, AppUpdate};
 use crate::{interactive, launchd, paths, runner, schedule, trust};
@@ -486,10 +486,11 @@ pub fn install_tmux(path: String) -> Reply<TmuxStatus> {
     Ok(tmux::install(&path)?)
 }
 
-/// The skills a prompt can start with, as the job's runs would find them: its Claude binary, PATH and folder.
+/// The skills a prompt can start with, the models a job can run on, and the model and effort it gets when it picks
+/// none, as the job's runs would find them: its Claude binary, PATH, folder and model.
 #[tauri::command(async)]
-pub fn list_skills(claude: String, path: String, cwd: String) -> Reply<Vec<Skill>> {
-    Ok(skills::list(&claude, &path, &cwd)?)
+pub fn list_offer(claude: String, path: String, cwd: String, model: String) -> Reply<Offer> {
+    Ok(offer::list(&claude, &path, &cwd, &model)?)
 }
 
 /// The version this app was built as, from package.json.

@@ -413,11 +413,14 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
 }
 
 /// What every run passes Claude Code, headless or interactive: how to end its answer and say what it is doing, its
-/// model, Chrome, the tools Claude Jobs gives it, and the tools it may use without asking.
+/// model and effort, Chrome, the tools Claude Jobs gives it, and the tools it may use without asking.
 pub fn session_args(job: &Job, run_id: &str) -> Result<Vec<String>, String> {
     let mut args = vec!["--append-system-prompt".to_string(), format!("{STATUS_INSTRUCTION} {PROGRESS_INSTRUCTION}")];
     if !job.model.is_empty() {
         args.extend(["--model".to_string(), job.model.clone()]);
+    }
+    if let Some(effort) = job.effort {
+        args.extend(["--effort".to_string(), effort.arg().to_string()]);
     }
     if job.chrome {
         args.push("--chrome".to_string());
@@ -587,6 +590,22 @@ mod tests {
         job.during_run = vec![crate::actions::ActionUse { action: "slack".into(), recipient: "me".into() }];
         let args = session_args(&job, "20261103T080000Z").expect("args");
         assert_eq!(args[args.len() - 4..], ["--allowedTools", "Read", mcp::SET_STATUS_TOOL, mcp::SEND_MESSAGE_TOOL]);
+    }
+
+    #[test]
+    fn claude_runs_with_the_jobs_model_and_effort_or_its_own_defaults() {
+        let (model, effort) = ("opus", "xhigh");
+        let job: Job = serde_json::from_value(serde_json::json!({
+            "id": "j", "name": "J", "prompt": "/j", "hour": 9, "minute": 0, "model": model, "effort": effort
+        }))
+        .expect("parses");
+        let args = session_args(&job, "20261103T080000Z").expect("args");
+        let after = |flag: &str| args.iter().position(|a| a == flag).map(|at| args[at + 1].as_str());
+        assert_eq!((after("--model"), after("--effort")), (Some(model), Some(effort)));
+
+        let job = Job { model: String::new(), effort: None, ..job };
+        let args = session_args(&job, "20261103T080000Z").expect("args");
+        assert!(!args.iter().any(|a| a == "--model" || a == "--effort"), "{args:?}");
     }
 
     #[test]

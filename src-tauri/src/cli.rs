@@ -228,6 +228,13 @@ mod tests {
     }
 
     #[test]
+    fn save_refuses_an_effort_claude_code_does_not_take() {
+        let (current, _) = job_from_input(NEW_JOB, &[]).expect("valid");
+        let error = job_from_input(r#"{"id": "j", "effort": "extreme"}"#, &[current]).unwrap_err();
+        assert!(error.contains("unknown variant `extreme`"), "{error}");
+    }
+
+    #[test]
     fn save_moves_a_job_between_a_schedule_and_a_trigger() {
         let (scheduled, _) = job_from_input(NEW_JOB, &[]).expect("valid");
         let input = r#"{"id": "j", "event": {"kind": "pull_request_opened", "repos": ["o/a"], "mine": false}}"#;

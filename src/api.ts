@@ -11,11 +11,11 @@ import type { GcloudStatus } from './domain/GcloudStatus'
 import type { Job } from './domain/Job'
 import type { JobView } from './domain/JobView'
 import type { Layout } from './domain/Layout'
+import type { Offer } from './domain/Offer'
 import type { Recipient } from './domain/Recipient'
 import type { Repo } from './domain/Repo'
 import type { RunDetail } from './domain/RunDetail'
 import type { RunRecord } from './domain/RunRecord'
-import type { Skill } from './domain/Skill'
 import type { TmuxStatus } from './domain/TmuxStatus'
 
 // One function per Rust command in `src-tauri/src/commands.rs`.
@@ -54,8 +54,8 @@ export const api = {
 
   tmuxStatus: (path: string) => invoke<TmuxStatus>('tmux_status', { path }),
   installTmux: (path: string) => invoke<TmuxStatus>('install_tmux', { path }),
-  listSkills: (claude: string, path: string, cwd: string) =>
-    invoke<Skill[]>('list_skills', { claude, path, cwd }),
+  listOffer: (claude: string, path: string, cwd: string, model: string) =>
+    invoke<Offer>('list_offer', { claude, path, cwd, model }),
   appVersion: () => invoke<string>('app_version'),
   checkUpdate: () => invoke<AppUpdate | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),

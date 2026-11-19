@@ -296,8 +296,8 @@ Claude Jobs widget uses `status` and `watch`:
   pushed first, as JSON: `name` (`owner/name`), `private`, `pushed_at` and `owner_avatar`.
 
 Errors go to stderr, with exit code 1. These commands came in version 0.2.0, `save` in 0.5.0, `repos` and triggers in
-0.7.0, and `cron` in 0.11.0: an older binary opens its window instead, or refuses `cron` as an unknown field, so check
-`CFBundleShortVersionString` before calling one.
+0.7.0, `cron` in 0.11.0, and `effort` in 0.14.0: an older binary opens its window instead, or refuses `cron` or
+`effort` as an unknown field, so check `CFBundleShortVersionString` before calling one.
 
 ## Stack
 
@@ -361,6 +361,17 @@ signed in to the same claude.ai account. Claude Code does not open Chrome: a job
 as just after login, has to open it (`open -ga "Google Chrome"`) and wait about 10 seconds for the extension to
 connect. `file_upload` only takes files the run may read: keep them in the job's working folder, outside Documents,
 Downloads and the other folders macOS guards.
+
+## Model and effort
+
+A job runs on Claude Code's default model and effort unless it picks others in the editor: **Model** starts Claude with
+`--model` and **Effort** with `--effort` (low, medium, high, extra high or max). **Model** lists the models Claude Code
+offers: under **Latest**, an alias such as `opus`, which moves to each new version of its family, and under **Specific
+version**, a version such as `claude-opus-4-8`, which stays. Each **Default** says in brackets what a job that picks
+nothing gets, as Claude Code says in the job's folder: the model of its settings, or its own default, and the effort the
+job's model runs at, which depends on the model (none for a model that takes no effort). On the command line they are
+the job's `model` and `effort` (`low`, `medium`, `high`, `xhigh` or `max`, null for the default). A model Claude Code
+does not list, set from the command line, stays picked in the editor.
 
 ## Limits
 

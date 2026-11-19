@@ -131,6 +131,7 @@ mod tests {
             cwd: String::new(),
             allowed_tools: vec![],
             model: String::new(),
+            effort: None,
             timeout_minutes: 30,
             enabled: true,
             claude: String::new(),

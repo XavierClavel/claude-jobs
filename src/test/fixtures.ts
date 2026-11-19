@@ -20,6 +20,7 @@ export function job(overrides: Partial<JobView> = {}): JobView {
     cwd: '/Users/me',
     allowed_tools: [],
     model: '',
+    effort: null,
     timeout_minutes: 30,
     enabled: true,
     claude: '/bin/claude',

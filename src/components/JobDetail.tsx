@@ -202,6 +202,12 @@ export function JobDetail({
                   <dd className="mono">{job.model}</dd>
                 </>
               )}
+              {job.effort && (
+                <>
+                  <dt>Effort</dt>
+                  <dd className="mono">{job.effort}</dd>
+                </>
+              )}
               <dt>Starts when</dt>
               <dd className="stack">
                 {required(job, checks).map((condition) => {
