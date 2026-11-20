@@ -5,11 +5,12 @@
 //! turn ended on an API error instead, after which the session would only wait for someone to type.
 
 use crate::jobs::Job;
+use crate::paths;
 use crate::runner::{self, Outcome};
 use crate::runs::{self, RunRecord, RunStatus};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -39,14 +40,16 @@ pub fn session_name(job_id: &str) -> String {
 }
 
 pub fn tmux_bin(path: &str) -> Option<PathBuf> {
-    path.split(':')
-        .map(|dir| Path::new(dir).join("tmux"))
-        .chain(["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"].map(PathBuf::from))
-        .find(|p| p.is_file())
+    path.split(':').chain(paths::HOMEBREW_BINS).map(|dir| Path::new(dir).join("tmux")).find(|p| p.is_file())
+}
+
+/// What a job that needs tmux says when it is not installed.
+pub fn tmux_missing() -> String {
+    format!("tmux is not installed: {}.", paths::install_hint("tmux"))
 }
 
 fn tmux(bin: &Path, args: &[&str]) -> Option<Output> {
-    Command::new(bin).arg("-L").arg(SOCKET).args(args).output().ok()
+    paths::command(bin).arg("-L").arg(SOCKET).args(args).output().ok()
 }
 
 pub fn has_session(bin: &Path, session: &str) -> bool {
@@ -54,6 +57,7 @@ pub fn has_session(bin: &Path, session: &str) -> bool {
 }
 
 /// The terminals already showing a session, so Watch can bring one forward instead of opening another.
+#[cfg(target_os = "macos")]
 pub fn attached_ttys(bin: &Path, session: &str) -> Vec<String> {
     let Some(out) = tmux(bin, &["list-clients", "-t", session, "-F", "#{client_tty}"]) else { return vec![] };
     String::from_utf8_lossy(&out.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
@@ -65,7 +69,7 @@ pub fn shell_quote(text: &str) -> String {
 }
 
 pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
-    let bin = tmux_bin(&job.path).ok_or("tmux is not installed (brew install tmux)")?;
+    let bin = tmux_bin(&job.path).ok_or_else(tmux_missing)?;
     crate::trust::ensure(&job.cwd)?;
     let dir = runs::dir(&job.id);
     let marker = dir.join(format!("{}.done", rec.id));
@@ -86,7 +90,7 @@ pub fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
         format!("PATH={}", job.path),
         format!("HOME={home}"),
         format!("USER={user}"),
-        "SHELL=/bin/zsh".to_string(),
+        format!("SHELL={}", paths::shell()),
         "TERM=xterm-256color".to_string(),
         "LANG=en_US.UTF-8".to_string(),
     ];

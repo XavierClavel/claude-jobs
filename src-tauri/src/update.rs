@@ -1,6 +1,6 @@
 //! New versions, from the GitHub releases (`plugins.updater` in `tauri.conf.json`). The window asks whether one is
-//! out; installing it swaps the app bundle in place, so the launchd agents, which call the same path, run the new
-//! version from their next run on.
+//! out; installing it swaps the app bundle, or the AppImage, in place, so the agents, which call the same path, run the
+//! new version from their next run on.
 
 use serde::Serialize;
 use tauri::{AppHandle, Runtime};

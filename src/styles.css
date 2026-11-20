@@ -405,7 +405,8 @@ button.tag:hover:not(:disabled) {
   height: 100%;
 }
 
-/* Over the traffic lights' row, where the title bar would be. */
+/* Over the traffic lights' row, where the title bar would be. A window with a title bar of its own needs no room
+   for it. */
 .drag {
   position: fixed;
   inset: 0 0 auto;
@@ -428,6 +429,10 @@ button.tag:hover:not(:disabled) {
   justify-content: space-between;
   gap: 8px;
   padding: 48px 12px 10px 16px;
+}
+
+.titled .side-head {
+  padding-top: 12px;
 }
 
 .side-title {
@@ -754,6 +759,10 @@ button.side-group-toggle {
   flex-direction: column;
   padding-top: 40px;
   container-type: inline-size;
+}
+
+.titled .pane {
+  padding-top: 0;
 }
 
 .update {

@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 use ts_rs::TS;
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
-/// Where Claude Code keeps its claude.ai login, for the default config folder the runs use.
+/// The keychain item where Claude Code keeps its claude.ai login on macOS, for the default config folder the runs use.
+#[cfg(target_os = "macos")]
 const CREDENTIALS: &str = "Claude Code-credentials";
 
 pub const CLAUDE_SIGNED_OUT: &str = "Claude Code is signed out: run claude, then /login.";
@@ -330,9 +331,22 @@ fn claude_problem(job: &Job, expired_login: Option<&str>) -> Option<String> {
 }
 
 /// When the claude.ai login can no longer be renewed: its refresh token's expiry. Only that timestamp is kept.
+#[cfg(target_os = "macos")]
 fn login_expiry() -> Option<DateTime<Utc>> {
     let out = run(Command::new("/usr/bin/security").args(["find-generic-password", "-s", CREDENTIALS, "-w"]))?;
     parse_login_expiry(&out.stdout)
+}
+
+/// When the claude.ai login can no longer be renewed: its refresh token's expiry. Only that timestamp is kept.
+#[cfg(target_os = "linux")]
+fn login_expiry() -> Option<DateTime<Utc>> {
+    parse_login_expiry(&fs::read(credentials_file()).ok()?)
+}
+
+/// Where Claude Code keeps its claude.ai login on Linux, for the default config folder the runs use.
+#[cfg(target_os = "linux")]
+fn credentials_file() -> std::path::PathBuf {
+    paths::home().join(".claude").join(".credentials.json")
 }
 
 fn parse_login_expiry(credentials: &[u8]) -> Option<DateTime<Utc>> {
@@ -342,11 +356,20 @@ fn parse_login_expiry(credentials: &[u8]) -> Option<DateTime<Utc>> {
 }
 
 /// When the claude.ai credentials last changed, from the keychain item's attributes, not its secret.
+#[cfg(target_os = "macos")]
 fn credentials_modified() -> Option<String> {
     let out = run(Command::new("/usr/bin/security").args(["find-generic-password", "-s", CREDENTIALS]))?;
     parse_modified(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// When the claude.ai credentials last changed: their file's modification time.
+#[cfg(target_os = "linux")]
+fn credentials_modified() -> Option<String> {
+    let modified = fs::metadata(credentials_file()).ok()?.modified().ok()?;
+    Some(DateTime::<Utc>::from(modified).to_rfc3339_opts(SecondsFormat::Nanos, true))
+}
+
+#[cfg(target_os = "macos")]
 fn parse_modified(attributes: &str) -> Option<String> {
     // `    "mdat"<timedate>=0x3230…00  "20261030081002Z\000"`
     let line = attributes.lines().find(|l| l.trim_start().starts_with("\"mdat\""))?;
@@ -511,6 +534,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn the_credentials_change_time_comes_from_the_attributes() {
         let attributes = "keychain: \"/Users/x/Library/Keychains/login.keychain-db\"\nattributes:\n    \"cdat\"<timedate>=0x32  \"20260327152658Z\\000\"\n    \"mdat\"<timedate>=0x32303236313033303038313030325A00  \"20261030081002Z\\000\"\n";
         assert_eq!(parse_modified(attributes).as_deref(), Some("20261030081002Z\\000"));

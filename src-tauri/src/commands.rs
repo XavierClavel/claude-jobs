@@ -11,11 +11,10 @@ use crate::offer::{self, Offer};
 use crate::runs::{self, RunDetail, RunRecord, Trigger, Waiting};
 use crate::tmux::{self, TmuxStatus};
 use crate::update::{self, AppUpdate};
-use crate::{interactive, launchd, paths, runner, schedule, trust};
+use crate::{agents, interactive, paths, runner, schedule, trust};
 use chrono::{Local, SecondsFormat};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Mutex;
 use tauri::AppHandle;
 use ts_rs::TS;
@@ -74,13 +73,13 @@ impl From<Vec<String>> for ApiError {
 type Reply<T> = Result<T, ApiError>;
 
 fn exe() -> Reply<PathBuf> {
-    std::env::current_exe().map_err(|e| ApiError::from(format!("cannot find the app's binary: {e}")))
+    Ok(paths::exe()?)
 }
 
 fn view(job: Job) -> JobView {
     JobView {
-        label: launchd::label(launchd::agent_of(&job)),
-        loaded: launchd::is_loaded(launchd::agent_of(&job)),
+        label: agents::label(agents::agent_of(&job)),
+        loaded: agents::is_loaded(agents::agent_of(&job)),
         next_run: schedule::next_run(&job, Local::now()).map(|t| t.to_rfc3339_opts(SecondsFormat::Secs, false)),
         last_run: runs::list(&job.id, 1).into_iter().next(),
         waiting: runs::waiting(&job.id),
@@ -150,14 +149,14 @@ pub fn save_job(job: Job, editing: Option<String>) -> Reply<JobView> {
         // Here rather than at the first run, so a folder Claude Code cannot trust shows in the editor.
         trust::ensure(&job.cwd)?;
     }
-    launchd::apply(&job, &exe()?)?;
+    agents::apply(&job, &exe()?)?;
     match all.iter_mut().find(|j| j.id == job.id) {
         Some(existing) => *existing = job.clone(),
         None => all.push(job.clone()),
     }
     jobs::save(&all)?;
     events::watch(&job);
-    launchd::apply_shared(&all, &exe()?)?;
+    agents::apply_shared(&all, &exe()?)?;
     Ok(view(job))
 }
 
@@ -178,11 +177,11 @@ pub fn delete_job(id: String) -> Reply<()> {
     if !all.iter().any(|j| j.id == id) {
         return Err(format!("No job called {id}.").into());
     }
-    launchd::remove(&id);
+    agents::remove(&id);
     let rest: Vec<Job> = all.into_iter().filter(|j| j.id != id).collect();
     jobs::save(&rest)?;
     events::forget(&id);
-    launchd::apply_shared(&rest, &exe()?)?;
+    agents::apply_shared(&rest, &exe()?)?;
     Ok(())
 }
 
@@ -193,15 +192,15 @@ pub fn set_enabled(id: String, enabled: bool) -> Reply<JobView> {
     let job = all.iter_mut().find(|j| j.id == id).ok_or_else(|| format!("No job called {id}."))?;
     job.enabled = enabled;
     let job = job.clone();
-    launchd::apply(&job, &exe()?)?;
+    agents::apply(&job, &exe()?)?;
     jobs::save(&all)?;
     // A job resumed watches from now: what was opened while it was paused does not start it.
     events::watch(&job);
-    launchd::apply_shared(&all, &exe()?)?;
+    agents::apply_shared(&all, &exe()?)?;
     Ok(view(job))
 }
 
-/// Starts a run now, detached from the window, with the environment launchd gives the job.
+/// Starts a run now, detached from the window, with the environment its agent gives the job.
 #[tauri::command(async)]
 pub fn run_now(id: String) -> Reply<()> {
     let job = jobs::find(&id)?.ok_or_else(|| format!("No job called {id}."))?;
@@ -217,21 +216,21 @@ pub fn run_now(id: String) -> Reply<()> {
     Ok(())
 }
 
-/// Opens Terminal on the live tmux session of an interactive run, to watch it or answer a question it is stuck on.
+/// Opens a terminal on the live tmux session of an interactive run, to watch it or answer a question it is stuck on.
 #[tauri::command(async)]
 pub fn watch_run(id: String) -> Reply<()> {
     let job = jobs::find(&id)?.ok_or_else(|| format!("No job called {id}."))?;
-    let tmux =
-        interactive::tmux_bin(&job.path).ok_or_else(|| "tmux is not installed (brew install tmux).".to_string())?;
+    let tmux = interactive::tmux_bin(&job.path).ok_or_else(interactive::tmux_missing)?;
     let session = interactive::session_name(&id);
     if !interactive::has_session(&tmux, &session) {
         return Err("There is no live session to watch: the run has finished.".to_string().into());
     }
+    #[cfg(target_os = "macos")]
     if interactive::attached_ttys(&tmux, &session).iter().any(|tty| focus_terminal_tab(tty)) {
         return Ok(());
     }
     let body = format!(
-        "#!/bin/zsh\nexec {} -L {} attach -t {}\n",
+        "#!/bin/sh\nexec {} -L {} attach -t {}\n",
         interactive::shell_quote(&tmux.display().to_string()),
         interactive::SOCKET,
         interactive::shell_quote(&session)
@@ -241,7 +240,8 @@ pub fn watch_run(id: String) -> Reply<()> {
 }
 
 /// Brings forward the Terminal tab on `tty`. The first time, macOS asks to let Claude Jobs control Terminal; without
-/// that permission this returns false and Watch opens a new window as before.
+/// that permission this returns false and Watch opens a new window.
+#[cfg(target_os = "macos")]
 fn focus_terminal_tab(tty: &str) -> bool {
     const SCRIPT: &str = r#"on run argv
     set wanted to item 1 of argv
@@ -259,21 +259,50 @@ fn focus_terminal_tab(tty: &str) -> bool {
     end tell
     return "missing"
 end run"#;
-    Command::new("osascript")
+    std::process::Command::new("osascript")
         .args(["-e", SCRIPT, tty])
         .output()
         .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "found")
 }
 
-/// A .command file opens in Terminal by itself, without asking to control Terminal.
-fn open_in_terminal(name: &str, body: &str) -> Reply<()> {
+/// Writes `body`, a shell script, as `logs/<file>`, executable.
+fn write_script(file: &str, body: &str) -> Reply<PathBuf> {
     std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
-    let script = paths::logs_dir().join(format!("{name}.command"));
+    let script = paths::logs_dir().join(file);
     std::fs::write(&script, body).map_err(|e| e.to_string())?;
     std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .map_err(|e| e.to_string())?;
-    Command::new("open").arg(&script).spawn().map_err(|e| format!("cannot open Terminal: {e}"))?;
+    Ok(script)
+}
+
+/// A .command file opens in Terminal by itself, without asking to control Terminal.
+#[cfg(target_os = "macos")]
+fn open_in_terminal(name: &str, body: &str) -> Reply<()> {
+    let script = write_script(&format!("{name}.command"), body)?;
+    std::process::Command::new("open").arg(&script).spawn().map_err(|e| format!("cannot open Terminal: {e}"))?;
     Ok(())
+}
+
+/// The first terminal found, each with the option that makes it run the script.
+#[cfg(target_os = "linux")]
+fn open_in_terminal(name: &str, body: &str) -> Reply<()> {
+    const TERMINALS: [(&str, &str); 5] = [
+        // Debian's and Ubuntu's pick of the installed terminals.
+        ("x-terminal-emulator", "-e"),
+        ("gnome-terminal", "--"),
+        ("konsole", "-e"),
+        ("xfce4-terminal", "-x"),
+        ("xterm", "-e"),
+    ];
+    let script = write_script(&format!("{name}.sh"), body)?;
+    for (terminal, run) in TERMINALS {
+        match paths::command(terminal).arg(run).arg(&script).spawn() {
+            Ok(_) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(format!("cannot open {terminal}: {e}").into()),
+        }
+    }
+    Err("No terminal found: install one, such as gnome-terminal or xterm.".to_string().into())
 }
 
 #[tauri::command(async)]
@@ -452,7 +481,7 @@ pub fn test_action(action: Action, recipient: Option<Recipient>) -> Reply<()> {
     Ok(actions::test(&action, recipient.as_ref())?)
 }
 
-/// Opens Terminal on `claude auth login`, with the environment the runs get, so the login is the one they use.
+/// Opens a terminal on `claude auth login`, with the environment the runs get, so the login is the one they use.
 #[tauri::command(async)]
 pub fn claude_sign_in() -> Reply<()> {
     let (claude, path) = match claude_job()? {
@@ -468,7 +497,7 @@ pub fn claude_sign_in() -> Reply<()> {
         .map(|(name, value)| format!("{name}={}", interactive::shell_quote(value)))
         .join(" ");
     let body = format!(
-        "#!/bin/zsh\nexec env -i {env} TERM=xterm-256color LANG=en_US.UTF-8 {} auth login\n",
+        "#!/bin/sh\nexec env -i {env} TERM=xterm-256color LANG=en_US.UTF-8 {} auth login\n",
         interactive::shell_quote(&claude)
     );
     open_in_terminal("claude-login", &body)
@@ -521,27 +550,4 @@ pub fn list_runs(id: String) -> Reply<Vec<RunRecord>> {
 #[tauri::command(async)]
 pub fn get_run(id: String, run_id: String) -> Reply<RunDetail> {
     Ok(runs::detail(&id, &run_id)?)
-}
-
-/// Points every enabled job's launchd file at this binary: after an update, a move, or on the first start after
-/// the Python version.
-pub fn sync_launchd() {
-    let Ok(exe) = std::env::current_exe() else { return };
-    let current = exe.display().to_string();
-    let Ok(all) = jobs::load() else { return };
-    for job in all.iter().filter(|j| j.enabled) {
-        let stale = match &job.event {
-            // Its own agent, left from when it had a schedule.
-            Some(_) => launchd::plist_path(&job.id).exists(),
-            None => launchd::program_of(&job.id).as_deref() != Some(current.as_str()) || !launchd::is_loaded(&job.id),
-        };
-        if stale {
-            if let Err(e) = launchd::apply(job, &exe) {
-                eprintln!("could not update the schedule of {}: {e}", job.id);
-            }
-        }
-    }
-    if let Err(e) = launchd::apply_shared(&all, &exe) {
-        eprintln!("could not update the login catch-up or the events check: {e}");
-    }
 }

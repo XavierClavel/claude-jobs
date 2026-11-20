@@ -8,7 +8,7 @@ use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use std::{fs, thread};
 use ts_rs::TS;
@@ -163,7 +163,7 @@ fn is_wrapper_dir(dir: &Path) -> bool {
 
 /// The user's PATH as a login shell sees it. An app started from the Finder only gets `/usr/bin:/bin:…`.
 fn login_shell_path() -> Option<String> {
-    let mut child = Command::new("/bin/zsh")
+    let mut child = paths::command(paths::shell())
         .args(["-ilc", "printf '\\n%s' \"$PATH\""])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -190,7 +190,9 @@ pub fn defaults() -> Defaults {
         home.join(".local/bin").display().to_string(),
         "/opt/homebrew/bin".into(),
         "/opt/homebrew/share/google-cloud-sdk/bin".into(),
+        "/home/linuxbrew/.linuxbrew/bin".into(),
         home.join("google-cloud-sdk/bin").display().to_string(),
+        "/snap/bin".into(),
         "/usr/local/bin".into(),
         "/usr/bin".into(),
         "/bin".into(),
@@ -321,10 +323,8 @@ pub fn validate(input: Job, existing: &[Job], editing: Option<&str>) -> Result<J
         }
     }
     if job.interactive && crate::interactive::tmux_bin(&job.path).is_none() {
-        errors.push(
-            "Interactive session needs tmux, which is not installed: click Install tmux, or run brew install tmux."
-                .to_string(),
-        );
+        errors
+            .push(format!("Interactive session needs tmux, which is not installed: {}.", paths::install_hint("tmux")));
     }
     if errors.is_empty() {
         Ok(job)

@@ -10,7 +10,6 @@ use chrono::{DateTime, Local, SecondsFormat, Utc};
 use std::fs::File;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::os::unix::process::CommandExt;
-use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -74,8 +73,7 @@ pub fn apply_verdict(rec: &mut RunRecord) {
         match verdict {
             Some(RunStatus::Failed) => {
                 rec.status = RunStatus::Failed;
-                let first =
-                    body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Claude reported a failure.");
+                let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Claude reported a failure.");
                 rec.error = Some(first.to_string());
             }
             Some(RunStatus::Warning) => rec.status = RunStatus::Warning,
@@ -90,12 +88,16 @@ pub fn needs_alert(status: RunStatus) -> bool {
     !matches!(status, RunStatus::Ok | RunStatus::Warning)
 }
 
-/// launchd's exit code for a run that ended as `status`: 0 when it worked, with or without a warning, else 1.
+/// The agent's exit code for a run that ended as `status`: 0 when it worked, with or without a warning, else 1.
 pub fn exit_code(status: RunStatus) -> i32 {
-    if needs_alert(status) { 1 } else { 0 }
+    if needs_alert(status) {
+        1
+    } else {
+        0
+    }
 }
 
-/// Exit codes for launchd's log: 0 ok, 1 the run failed, 2 no such job, 3 already running.
+/// Exit codes for the agent's log: 0 ok, 1 the run failed, 2 no such job, 3 already running.
 /// `pull_request` is the one a run started for a pull request goes with.
 pub fn run_job(job_id: &str, trigger: Trigger, pull_request: Option<PullRequest>) -> i32 {
     let job = match jobs::find(job_id) {
@@ -113,9 +115,9 @@ pub fn run_job(job_id: &str, trigger: Trigger, pull_request: Option<PullRequest>
         eprintln!("{job_id} is already running");
         return 3;
     }
-    // launchd starts some jobs at times that are not theirs: on 28 February of a leap year, a job that falls back to
-    // the last day of shorter months, which launchd cannot tell apart from the last day of other Februaries; and a
-    // cron job, at the times its entries had to leave open (see `launchd::cron_entries`).
+    // An agent starts some jobs at times that are not theirs: on 28 February of a leap year, a job that falls back to
+    // the last day of shorter months, which its calendar cannot tell apart from the last day of other Februaries; and
+    // a cron job, at the times its entries had to leave open (see `agents::cron_entries`).
     if trigger == Trigger::Schedule && (job.last_day_fallback || job.cron.is_some()) {
         let last = runs::list(job_id, 1).into_iter().next();
         let last_started = last.and_then(|r| DateTime::parse_from_rfc3339(&r.started_at).ok());
@@ -265,14 +267,14 @@ fn attempt(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> O
     Some(exit_code(rec.status))
 }
 
-/// Starts `run <job>` in its own process, detached from the caller, with the environment launchd gives the job.
+/// Starts `run <job>` in its own process, detached from the caller, with the environment its agent gives the job.
 pub fn spawn(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("cannot find the app's binary: {e}"))?;
+    let exe = paths::exe()?;
     std::fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(paths::logs_dir().join(format!("{}.launchd.log", job.id)))
+        .open(paths::agent_log(&job.id))
         .map_err(|e| e.to_string())?;
     let mut cmd = Command::new(exe);
     cmd.args(["run", &job.id]);
@@ -294,8 +296,14 @@ pub fn spawn(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) ->
     cmd.env_clear()
         .env("PATH", &job.path)
         .env("HOME", paths::home())
-        .env("USER", std::env::var("USER").unwrap_or_default())
-        .stdin(Stdio::null())
+        .env("USER", std::env::var("USER").unwrap_or_default());
+    // The desktop session, which a Linux alert goes through; a systemd user service gets them too. Unset on macOS.
+    for name in ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"] {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
+        }
+    }
+    cmd.stdin(Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log)
         // Keeps running if the caller exits.
@@ -305,7 +313,7 @@ pub fn spawn(job: &Job, trigger: Trigger, pull_request: Option<&PullRequest>) ->
     Ok(())
 }
 
-/// What the login agent calls: starts every job whose last scheduled time passed while the Mac was off.
+/// What the login agent calls: starts every job whose last scheduled time passed while the computer was off.
 pub fn catch_up() -> i32 {
     let all = match jobs::load() {
         Ok(all) => all,
@@ -329,7 +337,7 @@ pub fn catch_up() -> i32 {
     wait_for_network();
     let mut code = 0;
     for job in due {
-        eprintln!("{}: catching up the run missed while the Mac was off", job.id);
+        eprintln!("{}: catching up the run missed while the computer was off", job.id);
         if let Err(e) = spawn(job, Trigger::CatchUp, None) {
             eprintln!("{}: {e}", job.id);
             code = 1;
@@ -366,7 +374,7 @@ fn execute(job: &Job, rec: &mut RunRecord) -> Result<Outcome, String> {
         .env("PATH", &job.path)
         .env("HOME", paths::home())
         .env("USER", std::env::var("USER").unwrap_or_default())
-        .env("SHELL", "/bin/zsh")
+        .env("SHELL", paths::shell())
         .env("LANG", "en_US.UTF-8")
         .stdin(Stdio::null())
         .stdout(File::create(&out_path).map_err(|e| e.to_string())?)
@@ -469,6 +477,7 @@ fn wait(child: &mut Child, limit: Duration) -> (i32, bool) {
 
 /// Stays on screen until closed. A notification would not: macOS drops `display notification` from osascript unless
 /// Script Editor was once allowed to notify, and a banner shown at login is easy to miss.
+#[cfg(target_os = "macos")]
 fn alert(title: &str, message: &str) {
     const SCRIPT: &str = r#"on run argv
     set {heading, body, appPath} to argv
@@ -492,8 +501,25 @@ end run"#;
         .spawn();
 }
 
+/// A critical notification, which stays on screen until closed.
+#[cfg(target_os = "linux")]
+fn alert(title: &str, message: &str) {
+    let message: String = message.chars().take(500).collect();
+    // The text is markup to the notification server.
+    let message = message.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let sent = paths::command("notify-send")
+        .args(["--urgency=critical", "--app-name=Claude Jobs", "--", title, &message])
+        .stdin(Stdio::null())
+        .process_group(0)
+        .spawn();
+    if let Err(e) = sent {
+        eprintln!("cannot show the alert (notify-send: {e}): {title}: {message}");
+    }
+}
+
 /// The `.app` the binary is in; none for a dev build in `target/debug`.
-fn app_bundle(exe: &Path) -> Option<&Path> {
+#[cfg(target_os = "macos")]
+fn app_bundle(exe: &std::path::Path) -> Option<&std::path::Path> {
     exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app"))
 }
 
@@ -609,7 +635,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn the_alert_opens_the_app_the_run_came_from() {
+        use std::path::Path;
         let exe = Path::new("/Users/x/Applications/Claude Jobs.app/Contents/MacOS/claude-jobs");
         assert_eq!(app_bundle(exe), Some(Path::new("/Users/x/Applications/Claude Jobs.app")));
         assert_eq!(app_bundle(Path::new("/Users/x/claude-jobs/src-tauri/target/debug/claude-jobs")), None);

@@ -4,8 +4,8 @@
 use crate::{interactive, paths};
 use serde::Serialize;
 use std::fs::{self, File};
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
 use ts_rs::TS;
@@ -21,9 +21,8 @@ pub struct TmuxStatus {
     pub can_install: bool,
 }
 
-/// Apple silicon's Homebrew, then Intel's.
 fn brew() -> Option<PathBuf> {
-    ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].map(PathBuf::from).into_iter().find(|p| p.is_file())
+    paths::HOMEBREW_BINS.iter().map(|dir| Path::new(dir).join("brew")).find(|p| p.is_file())
 }
 
 /// `path` is the job's PATH, where its runs look for tmux.
@@ -33,12 +32,12 @@ pub fn status(path: &str) -> TmuxStatus {
 
 /// Runs `brew install tmux` and returns once it is done. What Homebrew printed is in `logs/tmux-install.log`.
 pub fn install(path: &str) -> Result<TmuxStatus, String> {
-    let brew = brew().ok_or("Homebrew is not installed: get it from brew.sh, or install tmux another way.")?;
+    let brew = brew().ok_or_else(|| format!("Homebrew is not installed: {}.", paths::install_hint("tmux")))?;
     let bin_dir = brew.parent().map(|d| d.display().to_string()).unwrap_or_default();
     fs::create_dir_all(paths::logs_dir()).map_err(|e| e.to_string())?;
     let log_path = paths::logs_dir().join("tmux-install.log");
     let log = File::create(&log_path).map_err(|e| e.to_string())?;
-    let mut child = Command::new(&brew)
+    let mut child = paths::command(&brew)
         .args(["install", "tmux"])
         // An app opened from the Finder gets a bare PATH; Homebrew needs its own folder and the system tools.
         .env("PATH", format!("{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin"))

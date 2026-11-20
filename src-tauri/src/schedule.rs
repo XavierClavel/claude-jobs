@@ -1,5 +1,5 @@
-//! When a job runs next, in local time, as launchd computes it from `StartCalendarInterval`: at its time on its days,
-//! or at the times of its cron expression. A job an event starts has no scheduled time.
+//! When a job runs next, in local time, as its agent computes it from its calendar (see `agents`): at its time on its
+//! days, or at the times of its cron expression. A job an event starts has no scheduled time.
 
 use crate::cron::Cron;
 use crate::jobs::Job;
@@ -108,7 +108,7 @@ pub fn missed_run<Tz: TimeZone>(
     (!ran_since && !runs_later_today).then_some(slot)
 }
 
-/// Whether the last scheduled time at or before `now` already has its run, so a launchd start now is not a new one.
+/// Whether the last scheduled time at or before `now` already has its run, so an agent's start now is not a new one.
 pub fn already_ran<Tz: TimeZone>(job: &Job, now: DateTime<Local>, last_started: Option<DateTime<Tz>>) -> bool {
     previous_run(job, now).is_some_and(|slot| last_started.is_some_and(|t| t >= slot))
 }
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn a_start_after_the_last_run_is_not_a_new_run() {
-        // launchd also starts a job on the 31st on 28 February 2028, which is not the last day of that February.
+        // Its agent also starts a job on the 31st on 28 February 2028, which is not the last day of that February.
         let job = month_end(vec![31]);
         let january = Some(at(2028, 1, 31, 9, 0));
         assert!(already_ran(&job, at(2028, 2, 28, 9, 0), january));

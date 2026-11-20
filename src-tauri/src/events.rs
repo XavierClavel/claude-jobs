@@ -1,6 +1,6 @@
 //! Jobs a trigger starts instead of a schedule: a pull request opened, or merged, in a GitHub repository.
 //!
-//! GitHub cannot reach the Mac, so while such a job is enabled a launchd agent, `com.claude-jobs.app.events`, calls
+//! GitHub cannot reach the computer, so while such a job is enabled an agent, `com.claude-jobs.app.events`, calls
 //! `claude-jobs poll` every 5 minutes: it lists the latest pull requests of each job's repositories with the GitHub CLI,
 //! and starts the job for one opened, or merged, since the job began watching, with the pull request after its prompt.
 //! A job runs once at a time, so one that comes while it runs, or waits for its conditions, starts at the first check
@@ -39,7 +39,9 @@ const REPOS_FRESH: Duration = Duration::from_secs(600);
 /// Pull requests a job remembers starting for: far more than a check reads, so none comes back as new.
 const KEEP_STARTED: usize = 500;
 
-pub const GH_MISSING: &str = "Watching pull requests needs the GitHub CLI: run brew install gh, then gh auth login.";
+pub fn gh_missing() -> String {
+    format!("Watching pull requests needs the GitHub CLI: {}, then gh auth login.", paths::install_hint("gh"))
+}
 pub const GH_SIGNED_OUT: &str = "The GitHub CLI is signed out: run gh auth login.";
 
 /// What starts a job instead of its schedule: its trigger.
@@ -136,7 +138,7 @@ pub fn list_repos(path: &str) -> Result<Vec<Repo>, String> {
             return Ok(repos.clone());
         }
     }
-    let gh = gh_bin(path).ok_or_else(|| GH_MISSING.to_string())?;
+    let gh = gh_bin(path).ok_or_else(gh_missing)?;
     let args = [
         "api",
         "--paginate",
@@ -191,7 +193,7 @@ pub fn validate(event: Event, path: &str) -> Result<Event, Vec<String>> {
         errors.push("Add the repositories to watch, as owner/name.".to_string());
     }
     if gh_bin(path).is_none() {
-        errors.push(GH_MISSING.to_string());
+        errors.push(gh_missing());
     }
     if errors.is_empty() {
         Ok(Event { repos: tidy, ..event })
@@ -224,8 +226,13 @@ pub fn open_on_github(repo: &str, number: Option<u32>) -> Result<(), String> {
         Some(n) => format!("https://github.com/{repo}/pull/{n}"),
         None => format!("https://github.com/{repo}"),
     };
-    let status = Command::new("open").arg(&url).status().map_err(|e| e.to_string())?;
-    if status.success() { Ok(()) } else { Err(format!("Cannot open {url}.")) }
+    let opener = if cfg!(target_os = "linux") { "xdg-open" } else { "open" };
+    let status = paths::command(opener).arg(&url).status().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Cannot open {url}."))
+    }
 }
 
 fn valid_repo(repo: &str) -> bool {
@@ -244,7 +251,7 @@ pub fn confirm(mut job: Job, previous: Option<&Job>) -> Result<Job, Vec<String>>
     let watched: Vec<String> = previous.and_then(|p| p.event.as_ref()).map(|e| e.repos.clone()).unwrap_or_default();
     let path = job.path.clone();
     let Some(Event { repos, .. }) = job.event.as_mut() else { return Ok(job) };
-    let gh = gh_bin(&path).ok_or_else(|| vec![GH_MISSING.to_string()])?;
+    let gh = gh_bin(&path).ok_or_else(|| vec![gh_missing()])?;
     let mut errors = Vec::new();
     for repo in repos.iter_mut().filter(|r| !watched.contains(*r)) {
         let name = repo.clone();
@@ -279,8 +286,8 @@ pub fn prompt(job_prompt: &str, pr: &PullRequest) -> String {
 pub fn gh_bin(path: &str) -> Option<PathBuf> {
     path.split(':')
         .filter(|dir| !dir.is_empty())
+        .chain(paths::HOMEBREW_BINS)
         .map(|dir| Path::new(dir).join("gh"))
-        .chain(["/opt/homebrew/bin/gh", "/usr/local/bin/gh"].map(PathBuf::from))
         .find(|p| p.is_file())
 }
 
@@ -406,7 +413,7 @@ fn parse_list(repo: &str, json: &str) -> Result<Vec<PullRequest>, String> {
 /// The latest pull requests of the event's repositories, those opened or those merged, and what went wrong with
 /// those that could not be read.
 fn list_all(job: &Job, event: &Event) -> (Vec<PullRequest>, Option<String>) {
-    let Some(gh) = gh_bin(&job.path) else { return (vec![], Some(GH_MISSING.to_string())) };
+    let Some(gh) = gh_bin(&job.path) else { return (vec![], Some(gh_missing())) };
     let (state, fields) = match event.kind {
         EventKind::PullRequestOpened => ("all", FIELDS),
         EventKind::PullRequestMerged => ("merged", MERGED_FIELDS),
@@ -680,7 +687,7 @@ mod tests {
         // Whether the GitHub CLI is there depends on the Mac: only the repositories are looked at here.
         let errors = |event: Event| match validate(event, "/usr/bin:/bin") {
             Ok(_) => vec![],
-            Err(errors) => errors.into_iter().filter(|e| e != GH_MISSING).collect(),
+            Err(errors) => errors.into_iter().filter(|e| *e != gh_missing()).collect(),
         };
         let given = pull_requests(&["https://github.com/o/a", "o/A", "", " o/b "], true);
         if let Ok(event) = validate(given.clone(), "/usr/bin:/bin") {

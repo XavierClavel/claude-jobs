@@ -1,7 +1,7 @@
 import type { TmuxStatus } from '../domain/TmuxStatus'
 import { Chip } from './Chip'
 
-// Interactive jobs run in tmux; the editor installs it with Homebrew when it is missing.
+// Interactive jobs run in tmux; the editor installs it with Homebrew, when there is one, if it is missing.
 export function TmuxNotice({
   status,
   installing,
@@ -28,8 +28,8 @@ export function TmuxNotice({
         </>
       ) : (
         <span className="muted">
-          Interactive sessions run in tmux. Install Homebrew from brew.sh to install it from here,
-          or install tmux another way.
+          Interactive sessions run in tmux. Install it with your package manager, or install
+          Homebrew from brew.sh to install it from here.
         </span>
       )}
     </div>

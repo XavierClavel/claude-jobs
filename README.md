@@ -1,7 +1,7 @@
 # Claude Jobs
 
-A macOS app that runs Claude Code prompts on a schedule, or when a pull request is opened or merged, headless, and
-shows how each run went.
+A macOS and Linux app that runs Claude Code prompts on a schedule, or when a pull request is opened or merged,
+headless, and shows how each run went. Linux works as macOS does, with systemd where macOS has launchd: see Linux.
 
 Each job is a prompt (such as `/photobook-monitor`), a time, when it repeats (every day, on days of the week, on days
 of the month, or as a cron expression says), and the tools it may use without asking. The app turns it into a launchd agent that calls the app's own
@@ -183,6 +183,34 @@ What each message did is kept in the run's record, in `messages`, and shown in i
 sent**; while the run goes on it is in `<run>.messages.jsonl`. A message Slack refused is not retried: Claude gets the
 error and decides what to do with it.
 
+## Linux
+
+Claude Jobs runs on an x86_64 Linux desktop with systemd (Ubuntu, Debian, Fedora, Arch…), as an AppImage, which
+updates itself as the Mac app does:
+
+```sh
+mkdir -p ~/Applications
+curl -L -o ~/Applications/Claude-Jobs.AppImage https://github.com/XavierClavel/claude-jobs/releases/latest/download/Claude-Jobs_x86_64.AppImage
+chmod +x ~/Applications/Claude-Jobs.AppImage
+~/Applications/Claude-Jobs.AppImage
+```
+
+An AppImage needs FUSE, which desktops have (`sudo apt install fuse3` otherwise). What differs from macOS:
+
+- Each job is a pair of systemd user units in `~/.config/systemd/user`: `com.claude-jobs.<job>.service`, which calls
+  the AppImage with `run <job>`, and `com.claude-jobs.<job>.timer`, with an `OnCalendar=` line for each of its times.
+  The events check is a timer every 5 minutes, and the catch-up a service started at login. `systemctl --user
+  list-timers 'com.claude-jobs.*'` lists them. They run while you are logged in, and a time missed while the computer
+  slept runs when it wakes. What the runner printed is in `logs/<job>.systemd.log`.
+- Claude Code keeps its login in `~/.claude/.credentials.json`, where the condition reads its expiry.
+- An alert is a critical notification (`notify-send`, from libnotify), which stays until you close it.
+- **Watch** and **Sign in** open a new window of the first terminal found among `x-terminal-emulator`,
+  `gnome-terminal`, `konsole`, `xfce4-terminal` and `xterm`.
+- tmux, the GitHub CLI and gcloud come from your package manager (`sudo apt install tmux gh`); **Install tmux** in the
+  editor needs Homebrew.
+- Runs get your login shell, from `/etc/passwd`, as `SHELL`, and the PATH it sets is where a new job's starts.
+- The command line is the AppImage itself: `~/Applications/Claude-Jobs.AppImage status`.
+
 ## Requirements
 
 - Claude Code, signed in (run `claude` once).
@@ -212,14 +240,14 @@ launchd agents call the same path, so their next run is on the new version. The 
 once: it says when the app is up to date, and shows the error when the check fails. A dev build never checks.
 
 To publish a version, bump `version` in `package.json` and merge to main. The Release workflow
-(`.github/workflows/release.yml`) sees a version with no release yet, runs the checks, then `pnpm release`: it builds
-the app, signs the update archive with the repository secret `TAURI_SIGNING_PRIVATE_KEY`, and creates the release
-`v<version>` with the archive and `latest.json`, the file the updater reads. A push to main that keeps the version
-releases nothing.
+(`.github/workflows/release.yml`) sees a version with no release yet and, on a Mac and on Linux, runs the checks, then
+`pnpm release build`: it builds the app and signs its update archive with the repository secret
+`TAURI_SIGNING_PRIVATE_KEY`. Then `scripts/release.ts publish` creates the release `v<version>` with both archives and
+`latest.json`, the file the updater reads, which lists both. A push to main that keeps the version releases nothing.
 
-`pnpm release` does the same from a Mac, signing with `~/.tauri/claude-jobs.key` (or `TAURI_SIGNING_PRIVATE_KEY`,
-with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has one); `pnpm release --dry-run` builds both files without
-publishing. Keep a copy of the key: installed apps only accept updates signed with it.
+`pnpm release build` builds this machine's archive locally without publishing, signing with
+`~/.tauri/claude-jobs.key` (or `TAURI_SIGNING_PRIVATE_KEY`, with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has
+one). Keep a copy of the key: installed apps only accept updates signed with it.
 
 ## Files
 
@@ -233,11 +261,11 @@ Everything lives in `~/.claude-jobs`, the same folder as the earlier `claude_job
 - `runs/<job>/<run>.json`: one record per run (status, duration, turns, cost, Claude's result, session id, what its
   actions did, the messages Claude sent), with `<run>.out` (Claude's JSON output), `<run>.err` (its stderr) and
   `<run>.progress.json` (the status line Claude last set) beside it. The last 100 runs are kept.
-- `logs/<job>.launchd.log`: what the runner itself printed.
+- `logs/<job>.launchd.log` (`logs/<job>.systemd.log` on Linux): what the runner itself printed.
 - `workspace/`: the working folder of jobs that need no particular one, empty (see Interactive jobs).
 
-On start, the app points every enabled job's launchd file at its own binary, so moving or updating the app keeps the
-schedules working.
+On start, the app points every enabled job's launchd file (systemd unit on Linux) at its own binary, so moving or
+updating the app keeps the schedules working.
 
 ## Command line
 
@@ -308,13 +336,16 @@ Tauri 2 (Rust) with React 19, TypeScript and Vite; pnpm, Biome, Vitest and Testi
 
 ```sh
 pnpm install
-pnpm tauri dev          # the app, reloading on change (a dev build never touches the launchd files)
+pnpm tauri dev          # the app, reloading on change (a dev build never touches the launchd files or systemd units)
 pnpm test               # front-end tests
 pnpm test:rust          # Rust tests
 pnpm lint && pnpm typecheck
 pnpm app:build          # src-tauri/target/release/bundle/macos/Claude Jobs.app
-pnpm release            # publish package.json's version as a GitHub release (see Updates)
+pnpm release build      # this machine's signed update archive, as the release builds it (see Updates)
 ```
+
+On Linux, Tauri needs its libraries first: `sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev
+patchelf`.
 
 ## Interactive jobs
 

@@ -1,5 +1,6 @@
 # Publishes the version in package.json once it reaches main: bump `version`, merge, and the installed apps offer it at
-# their next check. The build is `pnpm release`, the same script as from a Mac. Needs the repository secret
+# their next check. `pnpm release build` builds the app on the Mac and on Linux, then `publish` creates the release
+# with both, so no installed app sees a `latest.json` without its platform. Needs the repository secret
 # TAURI_SIGNING_PRIVATE_KEY (the content of ~/.tauri/claude-jobs.key), and TAURI_SIGNING_PRIVATE_KEY_PASSWORD if the
 # key has a password. Actions are pinned to commits: this workflow holds the key every installed app trusts.
 name: Release
@@ -38,19 +39,23 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
-  release:
+  build:
     needs: check
     if: needs.check.outputs.new == 'true'
-    # Apple Silicon, which is the archive the README installs (Claude-Jobs_aarch64.app.tar.gz).
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          # Apple Silicon: Claude-Jobs_aarch64.app.tar.gz, which the README installs.
+          - os: macos-latest
+          # x86_64 on the oldest Ubuntu GitHub runs, so the AppImage starts on older systems too: Claude-Jobs_x86_64.AppImage.
+          - os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The release notes list the commits since the last tag.
-          fetch-depth: 0
+      - name: Install Tauri's Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev patchelf
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -60,10 +65,37 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      # Without the ts-rs exports, which rewrite src/domain unformatted and would leave the tree dirty for the release.
+      # Without the ts-rs exports, which rewrite src/domain unformatted and would leave the tree dirty.
       - run: cargo test --manifest-path src-tauri/Cargo.toml -- --skip export_bindings
-      - run: pnpm release
+      - run: pnpm release build
         env:
-          GH_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.os }}
+          path: src-tauri/target/release/bundle/release/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The release notes list the commits since the last tag.
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # Outside the checkout, which has to stay clean.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/release
+          merge-multiple: true
+      - run: node scripts/release.ts publish "$RUNNER_TEMP/release"
+        env:
+          GH_TOKEN: ${{ github.token }}

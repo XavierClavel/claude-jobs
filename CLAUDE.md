@@ -1,8 +1,12 @@
 # Claude Jobs
 
-macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with launchd. See README.md.
+macOS and Linux app (Tauri 2 + React 19) that schedules headless Claude Code runs with launchd on macOS and systemd user
+timers on Linux. See README.md.
 
-- Rust in `src-tauri/src`: `jobs` (jobs.json, validation), `launchd` (agent files, launchctl), `runner` (one run,
+- Rust in `src-tauri/src`: `jobs` (jobs.json, validation), `agents` (what starts each job: its calendar, the shared
+  catch-up and events agents, and when to reload them), with its two backends, `launchd` (macOS: plist files,
+  launchctl) and `systemd` (Linux: user units, systemctl), `paths` (data folder, and what differs between the two
+  systems: the app's binary, the AppImage's environment, the shell, Homebrew), `runner` (one run,
   `claude-jobs run <job>`, which first waits for the job's conditions), `conditions` (Claude Code and Google Cloud
   signed in, and the command conditions of `command_conditions.json`; checked and kept in `conditions.json`), `actions`
   (what a job does when a run ends, on success, on failure or on complete: Slack workflows, kept in `actions.json`, each
@@ -10,7 +14,7 @@ macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with lau
   `mcp` (`claude-jobs mcp <job> <run>`, the MCP server a run's Claude gets with `--mcp-config`: its `send_message`
   tool sends to the job's `during_run` recipients),
   `events` (jobs a trigger, a pull request opened or merged, starts instead of a schedule: `claude-jobs poll`, every
-  minute from launchd, with the GitHub CLI; kept in `events.json`), `layout` (the sidebar's order and groups, kept in `layout.json` apart from `jobs.json` and reconciled
+  5 minutes from its agent, with the GitHub CLI; kept in `events.json`), `layout` (the sidebar's order and groups, kept in `layout.json` apart from `jobs.json` and reconciled
   with it on each read and write), `runs` (history, and the run waiting to start),
   `schedule` (next run), `cron` (a job's cron expression, read as crontab(5) does: `schedule` and `launchd` follow it
   instead of the job's time and days), `update` (new versions from the GitHub releases), `commands` (what the window calls), `cli`
@@ -22,10 +26,15 @@ macOS app (Tauri 2 + React 19) that schedules headless Claude Code runs with lau
 - Before committing: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:rust`. `.github/workflows/ci.yml` runs them
   on each pull request, and fails when `src/domain` is not what `pnpm domain:build` writes. `pnpm test:rust` rewrites
   `src/domain` unformatted: run `pnpm lint` after it, or `pnpm domain:build`, before committing.
-- A dev build (`debug_assertions`) must never rewrite the launchd files: they would point at `target/debug`.
+- A dev build (`debug_assertions`) must never rewrite the launchd files or systemd units: they would point at
+  `target/debug`.
+- Linux-only and macOS-only code is behind `#[cfg(target_os = …)]`; `pnpm test:rust` runs on both in CI. Programs the
+  app runs that do not get a cleared environment start with `paths::command`, so they never load the AppImage's
+  libraries.
 - A dev build never checks for or installs an update. To release, bump `version` in `package.json` and merge to main:
-  `.github/workflows/release.yml` runs `pnpm release` for a version with no release yet. `pnpm release --dry-run`
-  builds locally without publishing (it needs the signing key in `~/.tauri/claude-jobs.key`).
+  `.github/workflows/release.yml` runs `pnpm release build` on macOS and Linux, then `scripts/release.ts publish`, for a
+  version with no release yet. `pnpm release build` builds locally without publishing (it needs the signing key in
+  `~/.tauri/claude-jobs.key`).
 - Always bump the version in every branch that changes the app, so its merge to main publishes a release: `version` in
   `package.json`, `src-tauri/Cargo.toml` and the `claude-jobs` entry of `src-tauri/Cargo.lock`, all the same. Patch for
   a `fix:`, minor for a `feat:`, from main's current version: if another branch bumped main first, bump again past it,

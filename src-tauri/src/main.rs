@@ -5,7 +5,7 @@ use claude_jobs_lib::cli;
 use claude_jobs_lib::runs::Trigger;
 
 fn main() {
-    // `claude-jobs run <job>` is what launchd calls: one headless run, no window, and `poll` the events check. `status`,
+    // `claude-jobs run <job>` is what a job's agent calls: one headless run, no window, and `poll` the events check. `status`,
     // `start`, `watch`, `save` and `repos` are for other apps, such as Dooock's widget, and for agents.
     let args: Vec<String> = std::env::args().skip(1).collect();
     match (args.first().map(String::as_str), args.get(1)) {
