@@ -292,12 +292,14 @@ Claude Jobs widget uses `status` and `watch`:
   {"id": "inbox", "name": "Inbox", "prompt": "/inbox", "cron": "*/15 9-17 * * 1-5"}
   EOF
   ```
+- `claude-jobs delete <job>` deletes a job and its launchd agent, like **Delete** in the editor. Its runs stay in
+  `runs/<job>/`.
 - `claude-jobs repos` prints the repositories a trigger can watch, those your GitHub account can see, most recently
   pushed first, as JSON: `name` (`owner/name`), `private`, `pushed_at` and `owner_avatar`.
 
 Errors go to stderr, with exit code 1. These commands came in version 0.2.0, `save` in 0.5.0, `repos` and triggers in
-0.7.0, `cron` in 0.11.0, and `effort` in 0.14.0: an older binary opens its window instead, or refuses `cron` or
-`effort` as an unknown field, so check `CFBundleShortVersionString` before calling one.
+0.7.0, `cron` in 0.11.0, `effort` in 0.14.0, and `delete` in 0.15.0: an older binary opens its window instead, or
+refuses `cron` or `effort` as an unknown field, so check `CFBundleShortVersionString` before calling one.
 
 ## Stack
 
