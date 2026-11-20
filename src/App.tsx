@@ -18,6 +18,9 @@ import type { GcloudStatus } from './domain/GcloudStatus'
 import type { JobView } from './domain/JobView'
 import { useLayout } from './useLayout'
 
+// Linux keeps the window's own title bar: only macOS draws the window under it (`titleBarStyle` in tauri.conf.json).
+const titled = navigator.userAgent.includes('Linux')
+
 // What the pane shows beside the list of jobs.
 type View =
   | { kind: 'overview' }
@@ -84,7 +87,7 @@ export function App() {
     [refresh],
   )
 
-  // Checked again when the window comes back, which is when a sign-in in Terminal has just finished.
+  // Checked again when the window comes back, which is when a sign-in in a terminal has just finished.
   useEffect(() => {
     checkConditions()
     const timer = setInterval(checkConditions, 300000)
@@ -159,9 +162,9 @@ export function App() {
   const select = (id: string) => setView({ kind: 'job', id })
 
   return (
-    <div className="shell">
-      {/* The window has no title bar: this strip moves it, over the traffic lights' row. */}
-      <div className="drag" data-tauri-drag-region />
+    <div className={titled ? 'shell titled' : 'shell'}>
+      {/* On macOS the window has no title bar: this strip moves it, over the traffic lights' row. */}
+      {titled ? null : <div className="drag" data-tauri-drag-region />}
       <Sidebar
         version={version}
         jobs={jobs}

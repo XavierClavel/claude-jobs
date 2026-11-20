@@ -51,7 +51,7 @@ export function JobLine({ job, checks }: { job: JobView; checks: Checks }) {
   const unmet = unmetOf(job)
   if (job.waiting) return <>Waiting for {waitsFor(unmet, checks) || 'its conditions'}</>
   if (!job.enabled) return <>Paused</>
-  if (!job.loaded) return <>Not loaded in launchd</>
+  if (!job.loaded) return <>Schedule not loaded</>
   const schedule = scheduleShort(job)
   if (unmet.length) return <>{`${schedule} · waits for ${waitsFor(unmet, checks)}`}</>
   if (job.watch?.problem) return <>{`${schedule} · cannot check GitHub`}</>

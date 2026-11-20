@@ -4,7 +4,7 @@
 use crate::{jobs, paths};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
 use ts_rs::TS;
@@ -29,7 +29,9 @@ pub fn search_path() -> String {
     let known = [
         "/opt/homebrew/bin".to_string(),
         "/opt/homebrew/share/google-cloud-sdk/bin".to_string(),
+        "/home/linuxbrew/.linuxbrew/bin".to_string(),
         home.join("google-cloud-sdk/bin").display().to_string(),
+        "/snap/bin".to_string(),
         "/usr/local/bin".to_string(),
         "/usr/bin".to_string(),
         "/bin".to_string(),
@@ -48,7 +50,7 @@ fn find(path: &str) -> Option<PathBuf> {
 
 /// Runs gcloud; its trimmed stdout when it succeeds in time, otherwise the end of its stderr, or `None` on timeout.
 fn gcloud(bin: &Path, path: &str, args: &[&str], limit: Duration) -> Option<Result<String, String>> {
-    let mut child = Command::new(bin)
+    let mut child = paths::command(bin)
         .args(args)
         .env("PATH", path)
         .stdin(Stdio::null())

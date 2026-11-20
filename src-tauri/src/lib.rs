@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod agents;
 pub mod cli;
 pub mod commands;
 pub mod conditions;
@@ -7,6 +8,7 @@ pub mod events;
 pub mod gcloud;
 pub mod interactive;
 pub mod jobs;
+#[cfg(target_os = "macos")]
 pub mod launchd;
 pub mod layout;
 pub mod mcp;
@@ -15,6 +17,10 @@ pub mod paths;
 pub mod runner;
 pub mod runs;
 pub mod schedule;
+// Built for the tests on macOS too, so they check the units it writes there as well.
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub mod systemd;
 pub mod tmux;
 pub mod trust;
 pub mod update;
@@ -25,7 +31,9 @@ pub fn run() {
         .setup(|_app| {
             // A dev build must not point the real schedules at `target/debug`.
             if !cfg!(debug_assertions) {
-                commands::sync_launchd();
+                if let Ok(exe) = paths::exe() {
+                    agents::sync(&exe);
+                }
             }
             Ok(())
         })

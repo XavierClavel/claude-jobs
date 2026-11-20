@@ -74,7 +74,7 @@ export function JobDetail({
             ) : job.loaded ? (
               <Chip tone="ok">{job.event ? 'Watching' : 'Scheduled'}</Chip>
             ) : (
-              <Chip tone="warn">Not loaded in launchd</Chip>
+              <Chip tone="warn">Schedule not loaded</Chip>
             )}
             {waiting ? (
               <Chip tone="warn">Waiting to start</Chip>

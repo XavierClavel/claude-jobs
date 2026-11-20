@@ -115,7 +115,7 @@ fn ask(claude: &Path, path: &str, cwd: &Path, model: &str) -> Result<Offer, Stri
         .env("PATH", path)
         .env("HOME", paths::home())
         .env("USER", std::env::var("USER").unwrap_or_default())
-        .env("SHELL", "/bin/zsh")
+        .env("SHELL", paths::shell())
         .env("LANG", "en_US.UTF-8")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

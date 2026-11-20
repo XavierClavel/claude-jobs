@@ -15,6 +15,7 @@ const SUMMARY_LIMIT: usize = 200;
 /// The longest status line Claude may set: what fits on a row of the window.
 const STATUS_LIMIT: usize = 100;
 use crate::jobs::{self, Job};
+use crate::paths;
 use crate::runs::{self, Progress};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -62,7 +63,7 @@ pub struct SentMessage {
 
 /// The `--mcp-config` of a run: this binary, serving the run's tools.
 pub fn config(job_id: &str, run_id: &str) -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("cannot find the app's binary: {e}"))?;
+    let exe = paths::exe()?;
     let server = json!({ "type": "stdio", "command": exe, "args": ["mcp", job_id, run_id] });
     Ok(json!({ "mcpServers": { SERVER: server } }).to_string())
 }
@@ -693,6 +694,6 @@ mod tests {
         let server = &config["mcpServers"][SERVER];
         assert_eq!(server["type"], "stdio");
         assert_eq!(server["args"], json!(["mcp", "j", "20261103T080000Z"]));
-        assert_eq!(server["command"].as_str().map(PathBuf::from), std::env::current_exe().ok());
+        assert_eq!(server["command"].as_str().map(PathBuf::from), paths::exe().ok());
     }
 }

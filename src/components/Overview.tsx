@@ -189,7 +189,7 @@ export function Overview({
                         <div className="att-name">{item.title}</div>
                         <div className="att-sub">{item.text}</div>
                       </div>
-                      {item.kind !== 'launchd' && item.kind !== 'watch' && item.job.last_run ? (
+                      {item.kind !== 'unloaded' && item.kind !== 'watch' && item.job.last_run ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -222,7 +222,7 @@ const timeOf = (iso: string) => {
 
 type Attention =
   | { kind: 'condition'; condition: string; title: string; text: string; canSignIn: boolean }
-  | { kind: 'run' | 'action' | 'launchd' | 'watch'; job: JobView; title: string; text: string }
+  | { kind: 'run' | 'action' | 'unloaded' | 'watch'; job: JobView; title: string; text: string }
 
 export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
   const items: Attention[] = []
@@ -246,9 +246,9 @@ export function needsAttention(jobs: JobView[], checks: Checks): Attention[] {
   for (const job of jobs) {
     if (job.enabled && !job.loaded)
       items.push({
-        kind: 'launchd',
+        kind: 'unloaded',
         job,
-        title: `${job.name} is not loaded in launchd`,
+        title: `The schedule of ${job.name} is not loaded`,
         text: 'It will not start on its schedule. Saving it again reloads it.',
       })
     const problem = job.enabled ? job.watch?.problem : null
