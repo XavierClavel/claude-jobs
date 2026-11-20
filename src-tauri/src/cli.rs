@@ -126,6 +126,11 @@ pub fn start(job_id: &str) -> i32 {
     reply(commands::run_now(job_id.to_string()))
 }
 
+/// `claude-jobs delete <job>`: deletes a job and its launchd agent, like **Delete** in the editor.
+pub fn delete(job_id: &str) -> i32 {
+    reply(commands::delete_job(job_id.to_string()))
+}
+
 /// `claude-jobs watch <job>`: opens Terminal on a live interactive run, like **Watch**.
 pub fn watch(job_id: &str) -> i32 {
     reply(commands::watch_run(job_id.to_string()))

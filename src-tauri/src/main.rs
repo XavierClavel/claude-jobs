@@ -5,14 +5,16 @@ use claude_jobs_lib::cli;
 use claude_jobs_lib::runs::Trigger;
 
 fn main() {
-    // `claude-jobs run <job>` is what a job's agent calls: one headless run, no window, and `poll` the events check. `status`,
-    // `start`, `watch`, `save` and `repos` are for other apps, such as Dooock's widget, and for agents.
+    // `claude-jobs run <job>` is what a job's agent calls: one headless run, no window, and `poll` the events check.
+    // `status`, `start`, `watch`, `save`, `delete` and `repos` are for other apps, such as Dooock's widget, and for
+    // agents.
     let args: Vec<String> = std::env::args().skip(1).collect();
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("status"), _) => std::process::exit(cli::status()),
         (Some("start"), Some(job_id)) => std::process::exit(cli::start(job_id)),
         (Some("watch"), Some(job_id)) => std::process::exit(cli::watch(job_id)),
         (Some("save"), _) => std::process::exit(cli::save()),
+        (Some("delete"), Some(job_id)) => std::process::exit(cli::delete(job_id)),
         (Some("repos"), _) => std::process::exit(cli::repos()),
         // What Claude Code starts for a run's tools, from the run's `--mcp-config`.
         (Some("mcp"), Some(job_id)) => {
@@ -23,7 +25,7 @@ fn main() {
             eprintln!("usage: claude-jobs mcp <job_id> <run_id>");
             std::process::exit(2);
         }
-        (Some(command @ ("start" | "watch")), None) => {
+        (Some(command @ ("start" | "watch" | "delete")), None) => {
             eprintln!("usage: claude-jobs {command} <job_id>");
             std::process::exit(2);
         }
